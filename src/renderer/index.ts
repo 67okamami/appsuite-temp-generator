@@ -216,32 +216,218 @@ export class Renderer {
   }
 
   /**
-   * DesignInfo から AppSuite インポート可能な ZIP アーカイブを生成する。
-   * ZIP 内構造: template.json, template_desc.json, template.key
+   * DesignInfo から AppSuite GUI操作ガイド（Markdown）を生成する。
+   * AppSuiteのGUI画面でアプリを構築するためのステップバイステップ手順。
+   */
+  renderGuiGuide(design: DesignInfo): string {
+    const s: string[] = [];
+
+    s.push(`# 「${design.appInfo.name}」AppSuite GUI操作ガイド`);
+    s.push('');
+    s.push('このガイドでは、AppSuiteのGUI画面でアプリを構築する手順をステップバイステップで説明します。');
+    s.push('');
+
+    // ステップ1: アプリ作成
+    s.push('## ステップ1: アプリの新規作成');
+    s.push('');
+    s.push('1. デスクネッツ ネオにログインし、AppSuiteを開く');
+    s.push('2. 「アプリケーションの管理」→「アプリケーションの追加」をクリック');
+    s.push('3. 「新規作成」を選択');
+    s.push('4. 以下の基本情報を設定:');
+    s.push('');
+    s.push(`   | 項目 | 設定値 |`);
+    s.push(`   |---|---|`);
+    s.push(`   | アプリ名 | ${design.appInfo.name} |`);
+    s.push(`   | 説明 | ${design.appInfo.description} |`);
+    s.push(`   | アイコン | ${design.appInfo.iconId} に対応するアイコンを選択 |`);
+    s.push('');
+
+    // ステップ2: 部品の追加
+    s.push('## ステップ2: 部品（フィールド）の追加');
+    s.push('');
+    s.push('「ビューの設定」画面で、以下の部品を順番に追加してください。');
+    s.push('左側の部品パレットからドラッグ＆ドロップで配置します。');
+    s.push('');
+
+    for (let i = 0; i < design.components.length; i++) {
+      const comp = design.components[i];
+      const asType = COMPONENT_TYPE_TO_APPSUITE[comp.type] ?? comp.type;
+      s.push(`### 部品${i + 1}: ${comp.name}`);
+      s.push('');
+      s.push(`| 設定項目 | 設定値 |`);
+      s.push(`|---|---|`);
+      s.push(`| 部品タイプ | **${this.getJapaneseTypeName(asType)}** |`);
+      s.push(`| 部品名 | ${comp.name} |`);
+      s.push(`| 必須 | ${comp.required ? 'チェックを入れる' : 'チェックなし'} |`);
+
+      if (comp.options && comp.options.length > 0) {
+        s.push(`| 選択肢 | ${comp.options.join(' / ')} |`);
+      }
+      if (comp.formula) {
+        s.push(`| 計算式 | \`${comp.formula}\` |`);
+      }
+      s.push('');
+    }
+
+    // ステップ3: リレーション設定
+    if (design.relations.length > 0) {
+      s.push('## ステップ3: リレーションの設定');
+      s.push('');
+      s.push('以下のリレーション部品を追加し、他アプリとの紐付けを設定してください。');
+      s.push('');
+
+      for (let i = 0; i < design.relations.length; i++) {
+        const rel = design.relations[i];
+        s.push(`### リレーション${i + 1}: ${rel.comment}`);
+        s.push('');
+        s.push(`| 設定項目 | 設定値 |`);
+        s.push(`|---|---|`);
+        s.push(`| 参照先アプリ | ${rel.targetApp} |`);
+        s.push(`| 紐付けキー | ${rel.keyField} |`);
+        s.push(`| 取得フィールド | ${rel.fetchFields.join(', ')} |`);
+        s.push('');
+      }
+    }
+
+    // ステップ4: 計算式・自動設定
+    if (design.automations.length > 0) {
+      const stepNum = design.relations.length > 0 ? 4 : 3;
+      s.push(`## ステップ${stepNum}: 計算式・自動設定の設定`);
+      s.push('');
+
+      for (const auto of design.automations) {
+        if (auto.type === 'calc') {
+          s.push(`### 計算部品: ${auto.targetComponent}`);
+          s.push('');
+          s.push(`1. 対象の計算部品（${auto.targetComponent}）の設定を開く`);
+          s.push(`2. 計算式に \`${auto.formula ?? ''}\` を入力`);
+          s.push(`3. 説明: ${auto.comment}`);
+          s.push('');
+        } else {
+          s.push(`### 自動設定: ${auto.targetComponent}`);
+          s.push('');
+          s.push(`1. 「タスクの設定」から新規タスクを追加`);
+          s.push(`2. 対象部品: ${auto.targetComponent}`);
+          s.push(`3. 説明: ${auto.comment}`);
+          if (auto.conditions) {
+            s.push('4. 条件:');
+            for (const cond of auto.conditions) {
+              s.push(`   - ${cond.field} が ${cond.value} ${this.getOperatorLabel(cond.operator)} の場合 → ${cond.setValue} を設定`);
+            }
+          }
+          s.push('');
+        }
+      }
+    }
+
+    // ステップ: ビュー・レイアウトの設定
+    const layoutStepNum = 3 + (design.relations.length > 0 ? 1 : 0) + (design.automations.length > 0 ? 1 : 0);
+    s.push(`## ステップ${layoutStepNum}: ビュー・レイアウトの設定`);
+    s.push('');
+    s.push('「ビューの設定」画面で、部品の配置を調整してください。');
+    s.push('');
+
+    if (design.layout.pc.length > 0) {
+      s.push('### PC版レイアウト');
+      s.push('');
+      for (const section of design.layout.pc) {
+        s.push(`#### セクション: ${section.sectionName}`);
+        s.push('');
+        for (const row of section.rows) {
+          const compNames = row.components.map((cid) => {
+            const comp = design.components.find((c) => c.id === cid);
+            return comp ? comp.name : cid;
+          });
+          s.push(`- 1行に配置: ${compNames.join('、')}`);
+        }
+        s.push('');
+      }
+    }
+
+    if (design.layout.mobile && design.layout.mobile.length > 0) {
+      s.push('### モバイル版レイアウト');
+      s.push('');
+      s.push('モバイル版ビューを作成し、以下の順序で縦1列に部品を配置してください。');
+      s.push('');
+      for (const section of design.layout.mobile) {
+        for (const row of section.rows) {
+          const compNames = row.components.map((cid) => {
+            const comp = design.components.find((c) => c.id === cid);
+            return comp ? comp.name : cid;
+          });
+          s.push(`- ${compNames.join('、')}`);
+        }
+      }
+      s.push('');
+    }
+
+    // 最終ステップ
+    s.push(`## ステップ${layoutStepNum + 1}: 公開設定`);
+    s.push('');
+    s.push('1. 「アプリケーションの管理」でアプリを選択');
+    s.push('2. 利用ユーザーのアクセス権限を設定');
+    s.push('3. ポータルやメニューへの表示設定を行う');
+    s.push('4. アプリを公開する');
+    s.push('');
+
+    return s.join('\n');
+  }
+
+  // --- GUI操作ガイド用ヘルパー ---
+
+  private getJapaneseTypeName(type: string): string {
+    const map: Record<string, string> = {
+      textbox: 'テキスト（1行）',
+      textarea: 'テキスト（複数行）',
+      richeditor: 'リッチテキスト',
+      number: '数値',
+      date: '日付',
+      datetime: '日時',
+      time: '時刻',
+      select: 'プルダウン',
+      listbox: 'リストボックス',
+      radio: 'ラジオボタン',
+      checkbox: 'チェックボックス',
+      files: '添付ファイル',
+      users: 'ユーザー選択',
+      groups: '組織選択',
+      expression: '計算',
+      rel_list: 'リレーション（一覧）',
+      rel_field: 'リレーション（フィールド）',
+      input_list: '入力リスト',
+    };
+    return map[type] ?? type;
+  }
+
+  private getOperatorLabel(op: string): string {
+    const map: Record<string, string> = {
+      eq: 'と等しい',
+      neq: 'と等しくない',
+      gt: 'より大きい',
+      lt: 'より小さい',
+      gte: '以上',
+      lte: '以下',
+    };
+    return map[op] ?? op;
+  }
+
+  /**
+   * DesignInfo から ZIP アーカイブを生成する。
+   * 主出力: design-document.md + gui-guide.md
+   * 参考資料: template.json
    */
   async renderZipArchive(design: DesignInfo): Promise<Uint8Array> {
     const zip = new JSZip();
 
-    // template.json
+    // 主出力: 設計ドキュメント
+    zip.file('design-document.md', this.renderDesignDocument(design));
+
+    // 主出力: GUI操作ガイド
+    zip.file('gui-guide.md', this.renderGuiGuide(design));
+
+    // 参考資料: template.json（署名問題のため直接インポート不可）
     const template = this.renderTemplate(design);
-    zip.file('template.json', JSON.stringify(template, null, 4));
-
-    // template_desc.json
-    const iconPaths = APPSUITE_ICON_PATHS[design.appInfo.iconId] ?? APPSUITE_ICON_PATHS['icon-document'];
-    const desc: AppSuiteTemplateDesc = {
-      Name: design.appInfo.name,
-      overview: design.appInfo.description,
-      filename: iconPaths?.portal ?? '',
-      mimetype: 'image/png',
-    };
-    zip.file('template_desc.json', JSON.stringify(desc, null, 4));
-
-    // template.key (空のキー)
-    zip.file('template.key', '');
-
-    // design-document.md (設計ドキュメント — AppSuiteには不要だがユーザー向け)
-    const document = this.renderDesignDocument(design);
-    zip.file('design-document.md', document);
+    zip.file('reference/template.json', JSON.stringify(template, null, 4));
 
     return zip.generateAsync({ type: 'uint8array' });
   }
