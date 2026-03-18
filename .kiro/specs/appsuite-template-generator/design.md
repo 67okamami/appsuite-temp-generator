@@ -1,20 +1,26 @@
-# デザインドキュメント: AppSuite テンプレートジェネレーター
+# デザインドキュメント: AppSuite 設計支援ツール
 
 ## 概要
 
-本ドキュメントは、デスクネッツ ネオの業務アプリ作成ツール「AppSuite」向けテンプレートファイル自動生成ツールの技術設計を定義する。
+本ドキュメントは、デスクネッツ ネオの業務アプリ作成ツール「AppSuite」向けアプリ設計支援ツールの技術設計を定義する。
 
 ユーザーが自然言語（テキストまたは音声）でアプリ要件を入力すると、システムは以下を自動生成する：
 
-- AppSuiteへ即座にインポート可能なテンプレートファイル（AppSuite実形式のJSON、ZIPアーカイブとして出力）
-- 部品定義表・リレーション設計・計算式・画面デザイン案・Claude Code用操作指示を含む設計ドキュメント
+- 設計ドキュメント（Markdown） — 部品定義表・リレーション設計・計算式・画面デザイン案・GUI操作ガイド
+- AppSuite実形式のtemplate.json（参考資料。template.key署名問題により直接インポートは現時点で不可）
 
 ### 設計方針
 
 - **パイプライン型アーキテクチャ**: 入力 → 解析 → 生成 → 検証 → 出力 の一方向データフロー
 - **コンポーネント分離**: Parser / Generator / Renderer / Validator を独立したモジュールとして実装
 - **LLM活用**: 自然言語解析・設計生成の中核にLLM（Claude API）を使用
-- **ラウンドトリップ保証**: テンプレートファイルのシリアライズ/デシリアライズの整合性を保証
+- **設計ドキュメント中心**: 主出力は設計ドキュメントとGUI操作ガイド。テンプレートファイルは参考資料として出力
+
+### template.key 制約事項
+
+AppSuiteのテンプレートZIPには `template.key`（署名）が含まれ、`template.json` の内容に紐づいている。
+署名アルゴリズムは非公開のため、外部で生成したテンプレートのAppSuiteへの直接インポートは現時点では不可。
+ネオジャパンへの問い合わせ、またはサーバー側コード解析で署名ロジックが判明した場合に再開可能。
 
 ---
 
@@ -162,23 +168,25 @@ interface Generator {
 
 ### Renderer
 
-`DesignInfo` を各種出力形式に変換する。内部の `ComponentType` をAppSuite実フィールドタイプに変換してテンプレートを生成する。
+`DesignInfo` を各種出力形式に変換する。主出力は設計ドキュメントとGUI操作ガイド。
 
 ```typescript
 interface Renderer {
-  renderTemplate(design: DesignInfo): AppSuiteTemplateJson;
-  renderDesignDocument(design: DesignInfo): string;  // Markdown
+  renderDesignDocument(design: DesignInfo): string;     // Markdown（主出力）
+  renderGuiGuide(design: DesignInfo): string;           // GUI操作ガイド（Markdown）
+  renderTemplate(design: DesignInfo): AppSuiteTemplateJson;  // 参考資料
   renderZipArchive(design: DesignInfo): Promise<Uint8Array>;
 }
 ```
 
 **責務:**
-- AppSuiteテンプレートファイル（AppSuite実形式のJSON: `template.json`）の生成
+- **設計ドキュメント（Markdown）の生成**（主出力）
+- **AppSuite GUI操作ガイドの生成** — アプリ作成・部品追加・ビュー設定のステップバイステップ手順
+- AppSuiteテンプレートファイル（template.json）の生成（参考資料）
   - システムフィールド（id, 登録日時, 登録者, 更新日時, 更新者）の自動付与
   - ComponentType → AppSuiteFieldType の変換（例: text→textbox, calc→expression）
   - カードビュー・view_partsの自動生成
-- 設計ドキュメント（Markdown）の生成
-- ZIPアーカイブの生成（`template.json` + `template_desc.json` + `template.key` + `design-document.md`）
+- ZIPアーカイブの生成（`design-document.md` + `gui-guide.md` + `template.json`）
 
 ### Validator
 
