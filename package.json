@@ -1,0 +1,35 @@
+{
+  "name": "appsuite-temp-generator",
+  "version": "1.0.0",
+  "description": "AppSuite テンプレートファイル自動生成ツール",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:property": "vitest --run src/__tests__/property"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/67okamami/appsuite-temp-generator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/67okamami/appsuite-temp-generator/issues"
+  },
+  "homepage": "https://github.com/67okamami/appsuite-temp-generator#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
+    "jszip": "^3.10.1",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "fast-check": "^4.6.0",
+    "vitest": "^4.1.0"
+  }
+}
