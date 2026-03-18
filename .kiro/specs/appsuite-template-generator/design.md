@@ -6,7 +6,7 @@
 
 ユーザーが自然言語（テキストまたは音声）でアプリ要件を入力すると、システムは以下を自動生成する：
 
-- AppSuiteへ即座にインポート可能なテンプレートファイル（JSON/XML）
+- AppSuiteへ即座にインポート可能なテンプレートファイル（AppSuite実形式のJSON、ZIPアーカイブとして出力）
 - 部品定義表・リレーション設計・計算式・画面デザイン案・Claude Code用操作指示を含む設計ドキュメント
 
 ### 設計方針
@@ -162,28 +162,31 @@ interface Generator {
 
 ### Renderer
 
-`DesignInfo` を各種出力形式に変換する。
+`DesignInfo` を各種出力形式に変換する。内部の `ComponentType` をAppSuite実フィールドタイプに変換してテンプレートを生成する。
 
 ```typescript
 interface Renderer {
-  renderTemplate(design: DesignInfo): TemplateFile;
+  renderTemplate(design: DesignInfo): AppSuiteTemplateJson;
   renderDesignDocument(design: DesignInfo): string;  // Markdown
-  renderZipArchive(design: DesignInfo): Blob;
+  renderZipArchive(design: DesignInfo): Promise<Uint8Array>;
 }
 ```
 
 **責務:**
-- AppSuiteテンプレートファイル（JSON/XML）の生成
+- AppSuiteテンプレートファイル（AppSuite実形式のJSON: `template.json`）の生成
+  - システムフィールド（id, 登録日時, 登録者, 更新日時, 更新者）の自動付与
+  - ComponentType → AppSuiteFieldType の変換（例: text→textbox, calc→expression）
+  - カードビュー・view_partsの自動生成
 - 設計ドキュメント（Markdown）の生成
-- ZIPアーカイブの生成
+- ZIPアーカイブの生成（`template.json` + `template_desc.json` + `template.key` + `design-document.md`）
 
 ### Validator
 
-生成されたテンプレートファイルの整合性を検証する。
+生成されたAppSuiteテンプレートファイルの整合性を検証する。
 
 ```typescript
 interface Validator {
-  validate(template: TemplateFile): ValidationResult;
+  validate(template: AppSuiteTemplateJson): ValidationResult;
 }
 
 interface ValidationResult {
@@ -198,9 +201,9 @@ interface ValidationError {
 ```
 
 **責務:**
-- 必須フィールドの存在確認（アプリ名・部品定義・バージョン情報）
-- 部品タイプの有効性確認
-- リレーション参照の整合性確認
+- 必須フィールドの存在確認（バージョン・アプリ名・ユーザー定義フィールド）
+- AppSuiteフィールドタイプの有効性確認
+- 構造の整合性確認（テーブル・ビューの存在）
 
 ---
 
@@ -272,6 +275,24 @@ interface ComponentDefinition {
 }
 ```
 
+### ComponentType → AppSuiteFieldType マッピング
+
+Generator が使用する `ComponentType` はLLM生成用の抽象型であり、Renderer が AppSuite 実テンプレートに変換する際に以下のマッピングが適用される。
+
+| ComponentType | AppSuiteFieldType | 備考 |
+|---|---|---|
+| text | textbox | テキスト入力 |
+| number | number | 数値入力 |
+| date | date | 日付入力 |
+| select | select | 選択肢（ドロップダウン） |
+| checkbox | checkbox | チェックボックス |
+| attachment | files | 添付ファイル |
+| relation | rel_list | リレーション（一覧表示） |
+| calc | expression | 計算式 |
+| auto | expression | 自動設定（tasksで表現） |
+
+AppSuite が対応する全フィールドタイプ: `id`, `datetime`, `user`, `number`, `textbox`, `textarea`, `richeditor`, `files`, `input_list`, `select`, `listbox`, `radio`, `checkbox`, `users`, `groups`, `date`, `time`, `expression`, `rel_list`, `rel_field`
+
 ### RelationDefinition（リレーション定義）
 
 ```typescript
@@ -321,20 +342,35 @@ interface LayoutRow {
 }
 ```
 
-### TemplateFile（テンプレートファイル）
+### AppSuiteTemplateJson（テンプレートファイル — AppSuite実形式）
+
+実物のAppSuiteテンプレートZIPを解析して定義。`template.json` のルート構造。
 
 ```typescript
-interface TemplateFile {
-  version: string;           // AppSuiteテンプレートバージョン
-  appName: string;
-  appIcon: string;
-  appDescription: string;
-  components: TemplateComponent[];
-  relations: TemplateRelation[];
-  automations: TemplateAutomation[];
-  layout: TemplateLayout;
+interface AppSuiteTemplateJson {
+  version: string;                    // 例: "1.0.9"
+  applications: AppSuiteAppEntry[];
+}
+
+interface AppSuiteAppEntry {
+  application: AppSuiteApplication;   // アプリメタ情報（Name, type_, overview_ 等）
+  tables: AppSuiteTable[];            // テーブル定義
+  table_fileds: AppSuiteField[];      // フィールド定義（※"fileds"はAppSuiteの実際のスペル）
+  views: AppSuiteView[];              // 画面ビュー定義
+  view_parts: AppSuiteViewPart[];     // ビュー上の部品配置
+  filters: unknown[];                 // フィルター定義
+  tasks: unknown[];                   // 自動化タスク定義
+  task_actions: unknown[];            // タスクアクション定義
+  // ... 他21キー（aggr_settings, validations 等）
 }
 ```
+
+ZIP アーカイブ内のファイル構成:
+- `template.json` — アプリ定義本体
+- `template_desc.json` — メタ情報 `{ Name, overview, filename, mimetype }`
+- `template.key` — 認証キー
+- `icon.png` — アプリアイコン画像（オプション）
+- `pu_att/` — 添付画像アセット（オプション）
 
 ### RegenerateResult（再生成結果）
 
@@ -471,7 +507,7 @@ interface DesignDiff {
 
 ### プロパティ15: Claude Code操作指示の完全性
 
-*任意の* 設計情報に対して、生成されるClaude Code用操作指示は（1）アプリ基本情報・部品定義・リレーション設計・計算式・画面レイアウトの全情報を含み、（2）Markdownコードブロック形式で出力され、（3）AppSuiteテンプレートファイル形式（JSON/XML）の仕様を明示しなければならない
+*任意の* 設計情報に対して、生成されるClaude Code用操作指示は（1）アプリ基本情報・部品定義・リレーション設計・計算式・画面レイアウトの全情報を含み、（2）Markdownコードブロック形式で出力され、（3）AppSuiteテンプレートファイル形式（AppSuite実形式のJSON）の仕様を明示しなければならない
 
 **検証対象: 要件 7.1, 7.2, 7.3, 7.4**
 
@@ -485,9 +521,9 @@ interface DesignDiff {
 
 ---
 
-### プロパティ17: テンプレートファイルのラウンドトリップ
+### プロパティ17: テンプレートファイルの生成冪等性
 
-*任意の* 有効なDesignInfoオブジェクトに対して、テンプレートファイルを生成してパースし再度生成した結果は元のDesignInfoと等価でなければならない
+*任意の* 有効なDesignInfoオブジェクトに対して、同じDesignInfoからテンプレートファイルを2回生成した結果は同一でなければならない
 
 **検証対象: 要件 8.5**
 
@@ -503,7 +539,7 @@ interface DesignDiff {
 
 ### プロパティ19: ZIPアーカイブの内容完全性
 
-*任意の* 設計情報に対して、生成されるZIPアーカイブにはテンプレートファイルと設計ドキュメントの両方が含まれなければならない
+*任意の* 設計情報に対して、生成されるZIPアーカイブには `template.json`（AppSuite実形式）、`template_desc.json`、および設計ドキュメント（`design-document.md`）が含まれなければならない
 
 **検証対象: 要件 9.3**
 
