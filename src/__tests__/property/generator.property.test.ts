@@ -3,7 +3,7 @@ import * as fc from 'fast-check';
 import { Generator } from '../../generator/index.js';
 import { APPSUITE_ICON_IDS } from '../../generator/constants.js';
 import { VALID_COMPONENT_TYPES } from '../../types/index.js';
-import type { ParsedRequirements } from '../../types/index.js';
+import type { ParsedRequirements, ComponentDefinition } from '../../types/index.js';
 import { CONSTRAINTS } from '../../types/errors.js';
 
 // --- テスト用ヘルパー ---
@@ -218,6 +218,242 @@ describe('プロパティ10: Markdown出力形式の保証（構造検証）', (
             expect(comp).toHaveProperty('type');
             expect(comp).toHaveProperty('required');
           }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// --- リレーション・自動化・レイアウト用モッククライアント ---
+
+function createMultiResponseMockClient(responses: Record<string, object>) {
+  return {
+    messages: {
+      create: vi.fn().mockImplementation(async (args: any) => {
+        const system = args.system || '';
+        let response: object = {};
+        if (system.includes('リレーション')) {
+          response = responses.relations ?? { relations: [] };
+        } else if (system.includes('計算式') || system.includes('自動設定')) {
+          response = responses.automations ?? { automations: [], additionalComponents: [] };
+        } else if (system.includes('レイアウト')) {
+          response = responses.layout ?? { pc: [] };
+        } else if (system.includes('部品定義')) {
+          response = responses.components ?? { components: [] };
+        } else {
+          response = responses.appInfo ?? { name: 'テスト', iconId: 'icon-document', description: 'テスト' };
+        }
+        return {
+          content: [{ type: 'text', text: JSON.stringify(response) }],
+        };
+      }),
+    },
+  } as any;
+}
+
+// Feature: appsuite-template-generator, Property 11: リレーションコメントの存在
+describe('プロパティ11: リレーションコメントの存在', () => {
+  it('全リレーション定義にコメントが存在し空文字列でない', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        parsedRequirementsArbitrary(),
+        async (requirements) => {
+          const client = createMultiResponseMockClient({
+            relations: {
+              relations: [
+                { sourceApp: 'アプリA', targetApp: 'アプリB', keyField: 'id', fetchFields: ['name'], comment: '顧客情報を参照' },
+                { sourceApp: 'アプリA', targetApp: '', keyField: 'id', fetchFields: [], comment: '部署情報を参照' },
+              ],
+            },
+          });
+          const generator = new Generator({ llmClient: client });
+          const relations = await generator.generateRelations(requirements);
+
+          for (const rel of relations) {
+            expect(typeof rel.comment).toBe('string');
+            expect(rel.comment.trim().length).toBeGreaterThan(0);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('コメントが空のリレーションはフィルタリングされる', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        parsedRequirementsArbitrary(),
+        async (requirements) => {
+          const client = createMultiResponseMockClient({
+            relations: {
+              relations: [
+                { sourceApp: 'A', targetApp: 'B', keyField: 'id', fetchFields: [], comment: '' },
+                { sourceApp: 'A', targetApp: 'C', keyField: 'id', fetchFields: [], comment: '有効なコメント' },
+              ],
+            },
+          });
+          const generator = new Generator({ llmClient: client });
+          const relations = await generator.generateRelations(requirements);
+
+          expect(relations.length).toBe(1);
+          expect(relations[0].comment).toBe('有効なコメント');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// Feature: appsuite-template-generator, Property 12: 自動化定義のコメント存在
+describe('プロパティ12: 自動化定義のコメント存在', () => {
+  it('全自動化定義にコメントが存在し空文字列でない', async () => {
+    const sampleComponents: ComponentDefinition[] = [
+      { id: 'comp_001', name: '単価', type: 'number', required: true },
+      { id: 'comp_002', name: '数量', type: 'number', required: true },
+    ];
+
+    await fc.assert(
+      fc.asyncProperty(
+        parsedRequirementsArbitrary(),
+        async (requirements) => {
+          const client = createMultiResponseMockClient({
+            automations: {
+              automations: [
+                { type: 'calc', targetComponent: 'comp_003', formula: 'comp_001 * comp_002', comment: '合計金額を計算' },
+                { type: 'auto', targetComponent: 'comp_004', conditions: [], comment: 'ステータスを自動設定' },
+              ],
+              additionalComponents: [],
+            },
+          });
+          const generator = new Generator({ llmClient: client });
+          const result = await generator.generateAutomations(requirements, sampleComponents);
+
+          for (const auto of result.automations) {
+            expect(typeof auto.comment).toBe('string');
+            expect(auto.comment.trim().length).toBeGreaterThan(0);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// Feature: appsuite-template-generator, Property 13: PC版レイアウトの必須生成
+describe('プロパティ13: PC版レイアウトの必須生成', () => {
+  it('PC版レイアウトが生成され全セクションに名前がある', async () => {
+    const components: ComponentDefinition[] = [
+      { id: 'comp_001', name: 'テスト1', type: 'text', required: true },
+      { id: 'comp_002', name: 'テスト2', type: 'number', required: false },
+    ];
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.boolean(),
+        async (includeMobile) => {
+          const client = createMultiResponseMockClient({
+            layout: {
+              pc: [
+                { sectionName: '基本情報', rows: [{ components: ['comp_001', 'comp_002'] }] },
+              ],
+              mobile: includeMobile
+                ? [{ sectionName: '基本情報', rows: [{ components: ['comp_001'] }, { components: ['comp_002'] }] }]
+                : undefined,
+            },
+          });
+          const generator = new Generator({ llmClient: client });
+          const layout = await generator.generateLayout(components, includeMobile);
+
+          expect(Array.isArray(layout.pc)).toBe(true);
+          for (const section of layout.pc) {
+            expect(typeof section.sectionName).toBe('string');
+            expect(section.sectionName.trim().length).toBeGreaterThan(0);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// Feature: appsuite-template-generator, Property 14: モバイル版レイアウトの縦1列制約
+describe('プロパティ14: モバイル版レイアウトの縦1列制約', () => {
+  it('モバイル版レイアウトの全行は1部品のみ', async () => {
+    const components: ComponentDefinition[] = [
+      { id: 'comp_001', name: 'テスト1', type: 'text', required: true },
+      { id: 'comp_002', name: 'テスト2', type: 'number', required: false },
+      { id: 'comp_003', name: 'テスト3', type: 'date', required: false },
+    ];
+
+    await fc.assert(
+      fc.asyncProperty(
+        parsedRequirementsArbitrary(),
+        async () => {
+          const client = createMultiResponseMockClient({
+            layout: {
+              pc: [{ sectionName: '基本', rows: [{ components: ['comp_001', 'comp_002', 'comp_003'] }] }],
+              mobile: [{
+                sectionName: '基本',
+                rows: [
+                  { components: ['comp_001', 'comp_002'] },
+                  { components: ['comp_002'] },
+                  { components: ['comp_003'] },
+                ],
+              }],
+            },
+          });
+          const generator = new Generator({ llmClient: client });
+          const layout = await generator.generateLayout(components, true);
+
+          if (layout.mobile) {
+            for (const section of layout.mobile) {
+              for (const row of section.rows) {
+                expect(row.components.length).toBeLessThanOrEqual(1);
+              }
+            }
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// Feature: appsuite-template-generator, Property 15: Claude Code操作指示の完全性
+describe('プロパティ15: Claude Code操作指示の完全性', () => {
+  it('操作指示にアプリ基本情報・部品定義・テンプレート形式仕様が含まれる', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        parsedRequirementsArbitrary(),
+        async () => {
+          const client = createMultiResponseMockClient({});
+          const generator = new Generator({ llmClient: client });
+
+          const designInfo = {
+            appInfo: { name: 'テストアプリ', iconId: 'icon-document', description: 'テスト説明' },
+            components: [{ id: 'comp_001', name: '項目1', type: 'text' as const, required: true }],
+            relations: [],
+            automations: [],
+            layout: { pc: [{ sectionName: '基本', rows: [{ components: ['comp_001'] }] }] },
+            claudeInstruction: '',
+            generatedAt: new Date().toISOString(),
+            inputSummary: 'テスト',
+          };
+
+          const instruction = generator.buildClaudeInstruction(designInfo);
+
+          // (1) アプリ基本情報
+          expect(instruction).toContain('テストアプリ');
+          expect(instruction).toContain('icon-document');
+          // (2) 部品定義
+          expect(instruction).toContain('comp_001');
+          expect(instruction).toContain('項目1');
+          // (3) Markdown コードブロック形式
+          expect(instruction).toContain('```json');
+          // (4) テンプレートファイル形式仕様
+          expect(instruction).toContain('"version"');
+          expect(instruction).toContain('"appName"');
         },
       ),
       { numRuns: 100 },
