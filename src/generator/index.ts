@@ -15,6 +15,8 @@ import type {
   AutoCondition,
   LayoutDefinition,
   LayoutSection,
+  RegenerateResult,
+  DesignDiff,
 } from '../types/index.js';
 import { VALID_COMPONENT_TYPES } from '../types/index.js';
 import {
@@ -180,6 +182,24 @@ const LAYOUT_PROMPT = `あなたはAppSuite（デスクネッツ ネオの業務
 - 全部品がいずれかのセクションに配置されること
 - 必ず有効なJSONのみを出力する`;
 
+const REGENERATE_PROMPT = `あなたはAppSuite（デスクネッツ ネオの業務アプリ作成ツール）の設計支援AIです。
+既存の設計情報に対して、ユーザーの修正指示を反映してください。
+
+出力フォーマット（JSONのみ、他のテキストは不要）:
+{
+  "appInfo": { "name": "...", "iconId": "...", "description": "..." },
+  "components": [...],
+  "relations": [...],
+  "automations": [...]
+}
+
+ルール:
+- 修正指示に関係しない要素はそのまま維持する
+- 修正指示に関係する要素のみ更新する
+- 部品を追加する場合は既存のIDと重複しないようにする
+- 部品を削除する場合はその部品への参照（計算式・リレーション等）も整理する
+- 必ず有効なJSONのみを出力する`;
+
 /**
  * Generator クラス — ParsedRequirements から設計情報を生成する
  */
@@ -233,6 +253,158 @@ export class Generator {
     designInfo.claudeInstruction = this.buildClaudeInstruction(designInfo);
 
     return designInfo;
+  }
+
+  /**
+   * 既存の DesignInfo に対して修正指示を反映し、部分的に再生成する。
+   * 修正対象の要素のみ更新し、他の要素は維持する。
+   */
+  async regenerate(
+    requirements: ParsedRequirements,
+    instruction: string,
+    existing: DesignInfo,
+  ): Promise<RegenerateResult> {
+    const existingJson = JSON.stringify({
+      appInfo: existing.appInfo,
+      components: existing.components,
+      relations: existing.relations,
+      automations: existing.automations,
+    }, null, 2);
+
+    const userMessage = [
+      `元の要件: ${requirements.rawText}`,
+      '',
+      '既存の設計情報:',
+      existingJson,
+      '',
+      `修正指示: ${instruction}`,
+    ].join('\n');
+
+    const raw = await this.callLLM(REGENERATE_PROMPT, userMessage);
+    const json = JSON.parse(raw) as {
+      appInfo?: Partial<AppInfo>;
+      components?: unknown[];
+      relations?: unknown[];
+      automations?: unknown[];
+    };
+
+    // 更新された設計情報を構築
+    const updatedAppInfo: AppInfo = {
+      name: this.sanitizeAppName(json.appInfo?.name ?? existing.appInfo.name),
+      iconId: this.sanitizeIconId(json.appInfo?.iconId ?? existing.appInfo.iconId),
+      description: this.sanitizeDescription(json.appInfo?.description ?? existing.appInfo.description),
+    };
+
+    const updatedComponents = Array.isArray(json.components)
+      ? json.components
+          .map((c: any) => this.sanitizeComponent(c))
+          .filter((c): c is ComponentDefinition => c !== null)
+      : existing.components;
+
+    const updatedRelations = Array.isArray(json.relations)
+      ? json.relations
+          .map((r: any) => this.sanitizeRelation(r))
+          .filter((r): r is RelationDefinition => r !== null)
+      : existing.relations;
+
+    const updatedAutomations = Array.isArray(json.automations)
+      ? json.automations
+          .map((a: any) => this.sanitizeAutomation(a))
+          .filter((a): a is AutomationDefinition => a !== null)
+      : existing.automations;
+
+    // 差分を計算
+    const diff = this.computeDiff(existing, {
+      appInfo: updatedAppInfo,
+      components: updatedComponents,
+      relations: updatedRelations,
+      automations: updatedAutomations,
+    });
+
+    const updated: DesignInfo = {
+      appInfo: updatedAppInfo,
+      components: updatedComponents,
+      relations: updatedRelations,
+      automations: updatedAutomations,
+      layout: existing.layout, // レイアウトは維持
+      claudeInstruction: '',
+      generatedAt: new Date().toISOString(),
+      inputSummary: existing.inputSummary,
+    };
+
+    updated.claudeInstruction = this.buildClaudeInstruction(updated);
+
+    return { updated, diff };
+  }
+
+  /**
+   * 全設計情報を最初から再生成する。
+   */
+  async regenerateAll(
+    requirements: ParsedRequirements,
+    options: { includeMobile?: boolean } = {},
+  ): Promise<DesignInfo> {
+    return this.generate(requirements, options);
+  }
+
+  // --- 差分計算 ---
+
+  private computeDiff(
+    existing: DesignInfo,
+    updated: {
+      appInfo: AppInfo;
+      components: ComponentDefinition[];
+      relations: RelationDefinition[];
+      automations: AutomationDefinition[];
+    },
+  ): DesignDiff {
+    const added: string[] = [];
+    const modified: string[] = [];
+    const removed: string[] = [];
+
+    // AppInfo の差分
+    if (existing.appInfo.name !== updated.appInfo.name) {
+      modified.push(`アプリ名: 「${existing.appInfo.name}」→「${updated.appInfo.name}」`);
+    }
+    if (existing.appInfo.description !== updated.appInfo.description) {
+      modified.push('アプリ説明文を変更');
+    }
+
+    // Components の差分
+    const existingIds = new Set(existing.components.map((c) => c.id));
+    const updatedIds = new Set(updated.components.map((c) => c.id));
+
+    for (const comp of updated.components) {
+      if (!existingIds.has(comp.id)) {
+        added.push(`部品「${comp.name}」(${comp.type}) を追加`);
+      } else {
+        const old = existing.components.find((c) => c.id === comp.id);
+        if (old && JSON.stringify(old) !== JSON.stringify(comp)) {
+          modified.push(`部品「${comp.name}」を変更`);
+        }
+      }
+    }
+    for (const comp of existing.components) {
+      if (!updatedIds.has(comp.id)) {
+        removed.push(`部品「${comp.name}」(${comp.type}) を削除`);
+      }
+    }
+
+    // Relations の差分
+    if (updated.relations.length > existing.relations.length) {
+      added.push(`リレーション ${updated.relations.length - existing.relations.length}件 を追加`);
+    } else if (updated.relations.length < existing.relations.length) {
+      removed.push(`リレーション ${existing.relations.length - updated.relations.length}件 を削除`);
+    }
+
+    // Automations の差分
+    if (updated.automations.length > existing.automations.length) {
+      added.push(`自動化定義 ${updated.automations.length - existing.automations.length}件 を追加`);
+    } else if (updated.automations.length < existing.automations.length) {
+      removed.push(`自動化定義 ${existing.automations.length - updated.automations.length}件 を削除`);
+    }
+
+    return { added, modified, removed };
   }
 
   // --- AppInfo 生成 ---

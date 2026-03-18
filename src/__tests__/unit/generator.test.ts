@@ -484,3 +484,161 @@ describe('Generator.generate', () => {
     expect(result.inputSummary).toBe(sampleRequirements.rawText);
   });
 });
+
+// --- regenerate() テスト ---
+
+describe('Generator.regenerate', () => {
+  const existingDesign: DesignInfo = {
+    appInfo: { name: '勤怠管理', iconId: 'icon-people', description: '出退勤を管理する' },
+    components: [
+      { id: 'comp_001', name: '社員名', type: 'text', required: true },
+      { id: 'comp_002', name: '出勤日', type: 'date', required: true },
+    ],
+    relations: [],
+    automations: [],
+    layout: { pc: [{ sectionName: '基本', rows: [{ components: ['comp_001', 'comp_002'] }] }] },
+    claudeInstruction: '',
+    generatedAt: '2026-01-01T00:00:00Z',
+    inputSummary: '勤怠管理アプリ',
+  };
+
+  it('修正指示に基づいて部品を追加し差分を返す', async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: JSON.stringify({
+            appInfo: { name: '勤怠管理', iconId: 'icon-people', description: '出退勤を管理する' },
+            components: [
+              { id: 'comp_001', name: '社員名', type: 'text', required: true },
+              { id: 'comp_002', name: '出勤日', type: 'date', required: true },
+              { id: 'comp_003', name: '退勤時刻', type: 'date', required: false },
+            ],
+            relations: [],
+            automations: [],
+          }) }],
+        }),
+      },
+    } as any;
+    const generator = new Generator({ llmClient: client });
+    const result = await generator.regenerate(sampleRequirements, '退勤時刻の部品を追加して', existingDesign);
+
+    expect(result.updated.components).toHaveLength(3);
+    expect(result.diff.added).toContainEqual(expect.stringContaining('退勤時刻'));
+    expect(result.diff.removed).toHaveLength(0);
+  });
+
+  it('修正指示に基づいて部品を削除し差分を返す', async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: JSON.stringify({
+            appInfo: { name: '勤怠管理', iconId: 'icon-people', description: '出退勤を管理する' },
+            components: [
+              { id: 'comp_001', name: '社員名', type: 'text', required: true },
+            ],
+            relations: [],
+            automations: [],
+          }) }],
+        }),
+      },
+    } as any;
+    const generator = new Generator({ llmClient: client });
+    const result = await generator.regenerate(sampleRequirements, '出勤日を削除して', existingDesign);
+
+    expect(result.updated.components).toHaveLength(1);
+    expect(result.diff.removed).toContainEqual(expect.stringContaining('出勤日'));
+  });
+
+  it('修正指示に基づいてアプリ名を変更し差分を返す', async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: JSON.stringify({
+            appInfo: { name: '出退勤管理', iconId: 'icon-people', description: '出退勤を管理する' },
+            components: existingDesign.components,
+            relations: [],
+            automations: [],
+          }) }],
+        }),
+      },
+    } as any;
+    const generator = new Generator({ llmClient: client });
+    const result = await generator.regenerate(sampleRequirements, 'アプリ名を出退勤管理に変えて', existingDesign);
+
+    expect(result.updated.appInfo.name).toBe('出退勤管理');
+    expect(result.diff.modified).toContainEqual(expect.stringContaining('アプリ名'));
+  });
+
+  it('変更がない場合は差分が空', async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: JSON.stringify({
+            appInfo: existingDesign.appInfo,
+            components: existingDesign.components,
+            relations: [],
+            automations: [],
+          }) }],
+        }),
+      },
+    } as any;
+    const generator = new Generator({ llmClient: client });
+    const result = await generator.regenerate(sampleRequirements, '何も変えないで', existingDesign);
+
+    expect(result.diff.added).toHaveLength(0);
+    expect(result.diff.modified).toHaveLength(0);
+    expect(result.diff.removed).toHaveLength(0);
+  });
+
+  it('レイアウトは維持される', async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: JSON.stringify({
+            appInfo: existingDesign.appInfo,
+            components: existingDesign.components,
+            relations: [],
+            automations: [],
+          }) }],
+        }),
+      },
+    } as any;
+    const generator = new Generator({ llmClient: client });
+    const result = await generator.regenerate(sampleRequirements, 'テスト', existingDesign);
+
+    expect(result.updated.layout).toEqual(existingDesign.layout);
+  });
+});
+
+// --- regenerateAll() テスト ---
+
+describe('Generator.regenerateAll', () => {
+  it('全設計情報を最初から再生成する', async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockImplementation(async (args: any) => {
+          const system: string = typeof args.system === 'string' ? args.system : '';
+          let response: object;
+          if (system.includes('リレーション設計')) {
+            response = { relations: [] };
+          } else if (system.includes('計算式・自動設定')) {
+            response = { automations: [], additionalComponents: [] };
+          } else if (system.includes('画面レイアウトを生成')) {
+            response = { pc: [{ sectionName: '新基本', rows: [{ components: ['comp_001'] }] }] };
+          } else if (system.includes('部品定義表を生成')) {
+            response = { components: [{ id: 'comp_001', name: '新部品', type: 'text', required: true }] };
+          } else {
+            response = { name: '新アプリ', iconId: 'icon-document', description: '新しい説明' };
+          }
+          return { content: [{ type: 'text', text: JSON.stringify(response) }] };
+        }),
+      },
+    } as any;
+    const generator = new Generator({ llmClient: client });
+    const result = await generator.regenerateAll(sampleRequirements);
+
+    expect(result.appInfo.name).toBe('新アプリ');
+    expect(result.components).toHaveLength(1);
+    expect(result.components[0].name).toBe('新部品');
+  });
+});
