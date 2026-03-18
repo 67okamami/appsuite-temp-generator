@@ -10,6 +10,11 @@ import type {
   AppInfo,
   ComponentDefinition,
   ComponentType,
+  RelationDefinition,
+  AutomationDefinition,
+  AutoCondition,
+  LayoutDefinition,
+  LayoutSection,
 } from '../types/index.js';
 import { VALID_COMPONENT_TYPES } from '../types/index.js';
 import {
@@ -75,11 +80,108 @@ text, number, date, select, checkbox, attachment, relation, calc, auto
 - required は業務上必須かどうかを判断して設定する
 - 必ず有効なJSONのみを出力する`;
 
+const RELATIONS_PROMPT = `あなたはAppSuite（デスクネッツ ネオの業務アプリ作成ツール）の設計支援AIです。
+以下のアプリ要件からリレーション設計を生成してください。
+
+出力フォーマット（JSONのみ、他のテキストは不要）:
+{
+  "relations": [
+    {
+      "sourceApp": "参照元アプリ名",
+      "targetApp": "参照先アプリ名",
+      "keyField": "紐付けキー",
+      "fetchFields": ["取得フィールド1", "取得フィールド2"],
+      "comment": "紐付けの目的説明"
+    }
+  ]
+}
+
+ルール:
+- 要件に他アプリとのデータ参照・連携が含まれない場合は空配列を返す
+- 参照先アプリが明示されていない場合、targetApp は "[既存アプリ名を指定してください]" とする
+- comment は必ず設定し、紐付けの目的を説明する（空文字列不可）
+- 必ず有効なJSONのみを出力する`;
+
+const AUTOMATIONS_PROMPT = `あなたはAppSuite（デスクネッツ ネオの業務アプリ作成ツール）の設計支援AIです。
+以下のアプリ要件と部品定義から計算式・自動設定ロジックを生成してください。
+
+出力フォーマット（JSONのみ、他のテキストは不要）:
+{
+  "automations": [
+    {
+      "type": "calc",
+      "targetComponent": "対象部品ID",
+      "formula": "計算式",
+      "comment": "動作説明"
+    },
+    {
+      "type": "auto",
+      "targetComponent": "対象部品ID",
+      "conditions": [
+        {
+          "field": "条件対象部品ID",
+          "operator": "eq",
+          "value": "条件値",
+          "setValue": "設定値"
+        }
+      ],
+      "comment": "動作説明"
+    }
+  ],
+  "additionalComponents": [
+    {
+      "id": "comp_xxx",
+      "name": "追加部品名",
+      "type": "部品タイプ",
+      "required": false
+    }
+  ]
+}
+
+ルール:
+- 要件に計算・集計・合計等の処理が含まれない場合は空配列を返す
+- type は "calc"（計算式）または "auto"（自動設定）のみ
+- operator は eq/neq/gt/lt/gte/lte のいずれか
+- comment は必ず設定し、動作を説明する（空文字列不可）
+- 計算式に必要な部品が部品定義に存在しない場合は additionalComponents に追加する
+- 必ず有効なJSONのみを出力する`;
+
+const LAYOUT_PROMPT = `あなたはAppSuite（デスクネッツ ネオの業務アプリ作成ツール）の設計支援AIです。
+以下の部品定義から画面レイアウトを生成してください。
+
+出力フォーマット（JSONのみ、他のテキストは不要）:
+{
+  "pc": [
+    {
+      "sectionName": "セクション名",
+      "rows": [
+        { "components": ["comp_001", "comp_002"] },
+        { "components": ["comp_003"] }
+      ]
+    }
+  ],
+  "mobile": [
+    {
+      "sectionName": "セクション名",
+      "rows": [
+        { "components": ["comp_001"] },
+        { "components": ["comp_002"] },
+        { "components": ["comp_003"] }
+      ]
+    }
+  ]
+}
+
+ルール:
+- PC版は必須。関連する部品をグループ化し、セクション名を付与する
+- PC版は1行に複数部品を配置可能
+- モバイル版が要求された場合のみ mobile を生成する（要求されていなければ省略）
+- モバイル版は全部品を縦1列に配置（1行に1部品のみ）し、重要度の高い部品を上部に配置する
+- 全部品がいずれかのセクションに配置されること
+- 必ず有効なJSONのみを出力する`;
+
 /**
  * Generator クラス — ParsedRequirements から設計情報を生成する
- *
- * タスク4ではアプリ基本情報と部品定義の生成を実装する。
- * リレーション・自動化・レイアウト・Claude Code 指示はタスク5で追加予定。
  */
 export class Generator {
   private client: Anthropic;
@@ -92,25 +194,45 @@ export class Generator {
 
   /**
    * ParsedRequirements を受け取り、DesignInfo を生成する。
-   * タスク4時点では appInfo と components のみ生成し、
-   * 残りのフィールドはプレースホルダーを設定する。
+   * @param options.includeMobile モバイル版レイアウトを生成するか（デフォルト: false）
    */
-  async generate(requirements: ParsedRequirements): Promise<DesignInfo> {
+  async generate(
+    requirements: ParsedRequirements,
+    options: { includeMobile?: boolean } = {},
+  ): Promise<DesignInfo> {
+    // Phase 1: AppInfo と Components を並列生成
     const [appInfo, components] = await Promise.all([
       this.generateAppInfo(requirements),
       this.generateComponents(requirements),
     ]);
 
-    return {
+    // Phase 2: Relations と Automations を並列生成（Components に依存）
+    const [relations, automationsResult] = await Promise.all([
+      this.generateRelations(requirements),
+      this.generateAutomations(requirements, components),
+    ]);
+
+    // Automations で追加された部品をマージ
+    const allComponents = [...components, ...automationsResult.additionalComponents];
+
+    // Phase 3: Layout 生成（全部品に依存）
+    const layout = await this.generateLayout(allComponents, options.includeMobile ?? false);
+
+    // Phase 4: Claude Code 用操作指示の生成
+    const designInfo: DesignInfo = {
       appInfo,
-      components,
-      relations: [],          // タスク5で実装
-      automations: [],        // タスク5で実装
-      layout: { pc: [] },     // タスク5で実装
-      claudeInstruction: '',  // タスク5で実装
+      components: allComponents,
+      relations,
+      automations: automationsResult.automations,
+      layout,
+      claudeInstruction: '', // 後で設定
       generatedAt: new Date().toISOString(),
       inputSummary: requirements.rawText,
     };
+
+    designInfo.claudeInstruction = this.buildClaudeInstruction(designInfo);
+
+    return designInfo;
   }
 
   // --- AppInfo 生成 ---
@@ -203,6 +325,310 @@ export class Generator {
     }
 
     return component;
+  }
+
+  // --- RelationDefinition 生成 ---
+
+  async generateRelations(requirements: ParsedRequirements): Promise<RelationDefinition[]> {
+    try {
+      const raw = await this.callLLM(RELATIONS_PROMPT, this.buildRequirementsText(requirements));
+      const json = JSON.parse(raw) as { relations?: unknown[] };
+
+      if (!Array.isArray(json.relations)) {
+        return [];
+      }
+
+      return json.relations
+        .map((r: any) => this.sanitizeRelation(r))
+        .filter((r): r is RelationDefinition => r !== null);
+    } catch {
+      return [];
+    }
+  }
+
+  private sanitizeRelation(raw: any): RelationDefinition | null {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const comment = typeof raw.comment === 'string' && raw.comment.trim().length > 0
+      ? raw.comment
+      : null;
+
+    // コメントが空の場合は無効（要件 4.2: コメント必須）
+    if (!comment) return null;
+
+    return {
+      sourceApp: typeof raw.sourceApp === 'string' ? raw.sourceApp : '',
+      targetApp: typeof raw.targetApp === 'string' && raw.targetApp.trim().length > 0
+        ? raw.targetApp
+        : DEFAULT_VALUES.RELATION_PLACEHOLDER,
+      keyField: typeof raw.keyField === 'string' ? raw.keyField : '',
+      fetchFields: Array.isArray(raw.fetchFields)
+        ? raw.fetchFields.filter((f: unknown) => typeof f === 'string')
+        : [],
+      comment,
+    };
+  }
+
+  // --- AutomationDefinition 生成 ---
+
+  async generateAutomations(
+    requirements: ParsedRequirements,
+    components: ComponentDefinition[],
+  ): Promise<{ automations: AutomationDefinition[]; additionalComponents: ComponentDefinition[] }> {
+    try {
+      const componentsList = components
+        .map((c) => `${c.id}: ${c.name} (${c.type})`)
+        .join('\n');
+      const userMessage = `${this.buildRequirementsText(requirements)}\n\n既存の部品定義:\n${componentsList}`;
+
+      const raw = await this.callLLM(AUTOMATIONS_PROMPT, userMessage);
+      const json = JSON.parse(raw) as {
+        automations?: unknown[];
+        additionalComponents?: unknown[];
+      };
+
+      const automations = Array.isArray(json.automations)
+        ? json.automations
+            .map((a: any) => this.sanitizeAutomation(a))
+            .filter((a): a is AutomationDefinition => a !== null)
+        : [];
+
+      const additionalComponents = Array.isArray(json.additionalComponents)
+        ? json.additionalComponents
+            .map((c: any) => this.sanitizeComponent(c))
+            .filter((c): c is ComponentDefinition => c !== null)
+        : [];
+
+      return { automations, additionalComponents };
+    } catch {
+      return { automations: [], additionalComponents: [] };
+    }
+  }
+
+  private sanitizeAutomation(raw: any): AutomationDefinition | null {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const type = raw.type as string;
+    if (type !== 'calc' && type !== 'auto') return null;
+
+    const comment = typeof raw.comment === 'string' && raw.comment.trim().length > 0
+      ? raw.comment
+      : null;
+
+    // コメントが空の場合は無効（要件 5.3: コメント必須）
+    if (!comment) return null;
+
+    const automation: AutomationDefinition = {
+      type,
+      targetComponent: typeof raw.targetComponent === 'string' ? raw.targetComponent : '',
+      comment,
+    };
+
+    if (type === 'calc' && typeof raw.formula === 'string') {
+      automation.formula = raw.formula;
+    }
+
+    if (type === 'auto' && Array.isArray(raw.conditions)) {
+      automation.conditions = raw.conditions
+        .map((c: any) => this.sanitizeAutoCondition(c))
+        .filter((c: AutoCondition | null): c is AutoCondition => c !== null);
+    }
+
+    return automation;
+  }
+
+  private sanitizeAutoCondition(raw: any): AutoCondition | null {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const validOperators = ['eq', 'neq', 'gt', 'lt', 'gte', 'lte'];
+    if (!validOperators.includes(raw.operator)) return null;
+
+    return {
+      field: typeof raw.field === 'string' ? raw.field : '',
+      operator: raw.operator,
+      value: raw.value ?? '',
+      setValue: raw.setValue ?? '',
+    };
+  }
+
+  // --- LayoutDefinition 生成 ---
+
+  async generateLayout(
+    components: ComponentDefinition[],
+    includeMobile: boolean,
+  ): Promise<LayoutDefinition> {
+    try {
+      const componentsList = components
+        .map((c) => `${c.id}: ${c.name} (${c.type})`)
+        .join('\n');
+      const userMessage = `以下の部品でレイアウトを生成してください。${includeMobile ? 'モバイル版も生成してください。' : 'PC版のみ生成してください。'}\n\n部品一覧:\n${componentsList}`;
+
+      const raw = await this.callLLM(LAYOUT_PROMPT, userMessage);
+      const json = JSON.parse(raw) as {
+        pc?: unknown[];
+        mobile?: unknown[];
+      };
+
+      const pc = Array.isArray(json.pc)
+        ? json.pc.map((s: any) => this.sanitizeLayoutSection(s)).filter((s): s is LayoutSection => s !== null)
+        : [];
+
+      const layout: LayoutDefinition = { pc };
+
+      if (includeMobile && Array.isArray(json.mobile)) {
+        layout.mobile = json.mobile
+          .map((s: any) => this.sanitizeMobileLayoutSection(s))
+          .filter((s): s is LayoutSection => s !== null);
+      }
+
+      return layout;
+    } catch {
+      return { pc: [] };
+    }
+  }
+
+  private sanitizeLayoutSection(raw: any): LayoutSection | null {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const sectionName = typeof raw.sectionName === 'string' && raw.sectionName.trim().length > 0
+      ? raw.sectionName
+      : null;
+
+    if (!sectionName) return null;
+
+    const rows = Array.isArray(raw.rows)
+      ? raw.rows
+          .filter((r: any) => r && Array.isArray(r.components) && r.components.length > 0)
+          .map((r: any) => ({
+            components: r.components.filter((c: unknown) => typeof c === 'string'),
+          }))
+      : [];
+
+    return { sectionName, rows };
+  }
+
+  private sanitizeMobileLayoutSection(raw: any): LayoutSection | null {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const sectionName = typeof raw.sectionName === 'string' && raw.sectionName.trim().length > 0
+      ? raw.sectionName
+      : null;
+
+    if (!sectionName) return null;
+
+    // モバイル版: 各行は1部品のみ（要件 6.6）
+    const rows = Array.isArray(raw.rows)
+      ? raw.rows
+          .filter((r: any) => r && Array.isArray(r.components) && r.components.length > 0)
+          .map((r: any) => ({
+            components: [r.components[0]].filter((c: unknown) => typeof c === 'string'),
+          }))
+      : [];
+
+    return { sectionName, rows };
+  }
+
+  // --- Claude Code 用操作指示生成 ---
+
+  buildClaudeInstruction(design: DesignInfo): string {
+    const sections: string[] = [];
+
+    sections.push('# AppSuite テンプレートファイル作成指示');
+    sections.push('');
+    sections.push('以下の設計情報に基づいて、AppSuiteにインポート可能なテンプレートファイル（JSON形式）を作成してください。');
+    sections.push('');
+
+    // アプリ基本情報
+    sections.push('## アプリ基本情報');
+    sections.push('');
+    sections.push(`- アプリ名: ${design.appInfo.name}`);
+    sections.push(`- アイコン: ${design.appInfo.iconId}`);
+    sections.push(`- 説明: ${design.appInfo.description}`);
+    sections.push('');
+
+    // 部品定義
+    sections.push('## 部品定義');
+    sections.push('');
+    sections.push('| ID | 部品名 | タイプ | 必須 |');
+    sections.push('|---|---|---|---|');
+    for (const comp of design.components) {
+      sections.push(`| ${comp.id} | ${comp.name} | ${comp.type} | ${comp.required ? '○' : '-'} |`);
+    }
+    sections.push('');
+
+    // リレーション設計
+    if (design.relations.length > 0) {
+      sections.push('## リレーション設計');
+      sections.push('');
+      sections.push('| 参照元 | 参照先 | キー | 取得フィールド | 目的 |');
+      sections.push('|---|---|---|---|---|');
+      for (const rel of design.relations) {
+        sections.push(`| ${rel.sourceApp} | ${rel.targetApp} | ${rel.keyField} | ${rel.fetchFields.join(', ')} | ${rel.comment} |`);
+      }
+      sections.push('');
+    }
+
+    // 計算式・自動設定
+    if (design.automations.length > 0) {
+      sections.push('## 計算式・自動設定');
+      sections.push('');
+      for (const auto of design.automations) {
+        if (auto.type === 'calc') {
+          sections.push(`- **計算**: ${auto.targetComponent} = \`${auto.formula ?? ''}\` — ${auto.comment}`);
+        } else {
+          sections.push(`- **自動設定**: ${auto.targetComponent} — ${auto.comment}`);
+          if (auto.conditions) {
+            for (const cond of auto.conditions) {
+              sections.push(`  - 条件: ${cond.field} ${cond.operator} ${cond.value} → ${cond.setValue}`);
+            }
+          }
+        }
+      }
+      sections.push('');
+    }
+
+    // 画面レイアウト
+    sections.push('## 画面レイアウト（PC版）');
+    sections.push('');
+    for (const section of design.layout.pc) {
+      sections.push(`### ${section.sectionName}`);
+      for (const row of section.rows) {
+        sections.push(`- [ ${row.components.join(' | ')} ]`);
+      }
+    }
+    sections.push('');
+
+    if (design.layout.mobile) {
+      sections.push('## 画面レイアウト（モバイル版）');
+      sections.push('');
+      for (const section of design.layout.mobile) {
+        sections.push(`### ${section.sectionName}`);
+        for (const row of section.rows) {
+          sections.push(`- [ ${row.components.join(' | ')} ]`);
+        }
+      }
+      sections.push('');
+    }
+
+    // テンプレートファイル形式の仕様
+    sections.push('## テンプレートファイル形式');
+    sections.push('');
+    sections.push('AppSuiteテンプレートファイルはJSON形式で、以下の構造を持ちます:');
+    sections.push('');
+    sections.push('```json');
+    sections.push('{');
+    sections.push('  "version": "1.0",');
+    sections.push('  "appName": "アプリ名",');
+    sections.push('  "appIcon": "アイコンID",');
+    sections.push('  "appDescription": "説明文",');
+    sections.push('  "components": [...],');
+    sections.push('  "relations": [...],');
+    sections.push('  "automations": [...],');
+    sections.push('  "layout": { "pc": [...], "mobile": [...] }');
+    sections.push('}');
+    sections.push('```');
+
+    return sections.join('\n');
   }
 
   // --- ヘルパー ---
