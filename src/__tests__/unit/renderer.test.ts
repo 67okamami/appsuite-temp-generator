@@ -166,43 +166,128 @@ describe('Renderer.renderDesignDocument', () => {
   });
 });
 
+// --- renderGuiGuide テスト ---
+
+describe('Renderer.renderGuiGuide', () => {
+  it('アプリ作成手順が含まれる', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('ステップ1: アプリの新規作成');
+    expect(guide).toContain('受注管理');
+    expect(guide).toContain('受注を管理するアプリです。');
+  });
+
+  it('全部品の追加手順が含まれる', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('ステップ2: 部品（フィールド）の追加');
+    expect(guide).toContain('商品名');
+    expect(guide).toContain('金額');
+    expect(guide).toContain('ステータス');
+    expect(guide).toContain('税込金額');
+  });
+
+  it('各部品のAppSuiteタイプが日本語で表示される', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('テキスト（1行）');  // text → textbox
+    expect(guide).toContain('数値');              // number
+    expect(guide).toContain('プルダウン');        // select
+    expect(guide).toContain('計算');              // calc → expression
+  });
+
+  it('select 部品に選択肢が記載される', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('未処理 / 処理中 / 完了');
+  });
+
+  it('計算部品に計算式が記載される', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('`comp_002 * 1.1`');
+  });
+
+  it('リレーション設定手順が含まれる', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('リレーションの設定');
+    expect(guide).toContain('顧客マスタ');
+    expect(guide).toContain('顧客ID');
+  });
+
+  it('計算式・自動設定の設定手順が含まれる', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('計算式・自動設定の設定');
+    expect(guide).toContain('税込金額を自動計算');
+  });
+
+  it('レイアウト設定手順が含まれる', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('ビュー・レイアウトの設定');
+  });
+
+  it('公開設定手順が含まれる', () => {
+    const design = createSampleDesign();
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).toContain('公開設定');
+    expect(guide).toContain('アクセス権限');
+  });
+
+  it('リレーション・自動設定がない場合はそのステップが省略される', () => {
+    const design = { ...createSampleDesign(), relations: [], automations: [] };
+    const guide = renderer.renderGuiGuide(design);
+
+    expect(guide).not.toContain('リレーションの設定');
+    expect(guide).not.toContain('計算式・自動設定の設定');
+    expect(guide).toContain('ステップ3: ビュー・レイアウトの設定');
+  });
+});
+
 // --- renderZipArchive テスト ---
 
 describe('Renderer.renderZipArchive', () => {
-  it('ZIP に template.json, template_desc.json, template.key, design-document.md が含まれる', async () => {
+  it('ZIP に design-document.md, gui-guide.md, reference/template.json が含まれる', async () => {
     const design = createSampleDesign();
     const zipData = await renderer.renderZipArchive(design);
     const zip = await JSZip.loadAsync(zipData);
 
-    expect(zip.file('template.json')).not.toBeNull();
-    expect(zip.file('template_desc.json')).not.toBeNull();
-    expect(zip.file('template.key')).not.toBeNull();
     expect(zip.file('design-document.md')).not.toBeNull();
+    expect(zip.file('gui-guide.md')).not.toBeNull();
+    expect(zip.file('reference/template.json')).not.toBeNull();
   });
 
-  it('ZIP 内の template.json が AppSuite 形式', async () => {
+  it('ZIP 内の reference/template.json が AppSuite 形式', async () => {
     const design = createSampleDesign();
     const zipData = await renderer.renderZipArchive(design);
     const zip = await JSZip.loadAsync(zipData);
 
-    const content = await zip.file('template.json')!.async('string');
+    const content = await zip.file('reference/template.json')!.async('string');
     const parsed = JSON.parse(content);
 
     expect(parsed.version).toBe(APPSUITE_TEMPLATE_VERSION);
     expect(parsed.applications[0].application.Name).toBe('受注管理');
-    expect(parsed.applications[0].table_fileds.length).toBeGreaterThan(0);
   });
 
-  it('ZIP 内の template_desc.json が正しい形式', async () => {
+  it('ZIP 内の gui-guide.md にアプリ名が含まれる', async () => {
     const design = createSampleDesign();
     const zipData = await renderer.renderZipArchive(design);
     const zip = await JSZip.loadAsync(zipData);
 
-    const content = await zip.file('template_desc.json')!.async('string');
-    const parsed = JSON.parse(content);
+    const content = await zip.file('gui-guide.md')!.async('string');
 
-    expect(parsed.Name).toBe('受注管理');
-    expect(parsed.overview).toBe('受注を管理するアプリです。');
-    expect(parsed.mimetype).toBe('image/png');
+    expect(content).toContain('受注管理');
+    expect(content).toContain('ステップ1');
   });
 });

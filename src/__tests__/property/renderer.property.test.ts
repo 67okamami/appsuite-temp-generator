@@ -77,7 +77,7 @@ describe('プロパティ18: 設計ドキュメントの完全性', () => {
 
 // Feature: appsuite-template-generator, Property 19: ZIPアーカイブの内容完全性
 describe('プロパティ19: ZIPアーカイブの内容完全性', () => {
-  it('ZIPに template.json, template_desc.json, design-document.md が含まれる', async () => {
+  it('ZIPに design-document.md, gui-guide.md, reference/template.json が含まれる', async () => {
     const JSZip = (await import('jszip')).default;
 
     await fc.assert(
@@ -87,12 +87,16 @@ describe('プロパティ19: ZIPアーカイブの内容完全性', () => {
           const zipData = await renderer.renderZipArchive(designInfo);
           const zip = await JSZip.loadAsync(zipData);
 
-          expect(zip.file('template.json')).not.toBeNull();
-          expect(zip.file('template_desc.json')).not.toBeNull();
           expect(zip.file('design-document.md')).not.toBeNull();
+          expect(zip.file('gui-guide.md')).not.toBeNull();
+          expect(zip.file('reference/template.json')).not.toBeNull();
 
-          // template.json が AppSuite 形式
-          const content = await zip.file('template.json')!.async('string');
+          // gui-guide.md にアプリ名が含まれる
+          const guide = await zip.file('gui-guide.md')!.async('string');
+          expect(guide).toContain(designInfo.appInfo.name);
+
+          // reference/template.json が AppSuite 形式
+          const content = await zip.file('reference/template.json')!.async('string');
           const parsed = JSON.parse(content);
           expect(parsed.version).toBe(APPSUITE_TEMPLATE_VERSION);
           expect(parsed.applications[0].application.Name).toBe(designInfo.appInfo.name);
