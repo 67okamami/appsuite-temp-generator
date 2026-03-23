@@ -37,6 +37,14 @@ const PARSE_SYSTEM_PROMPT = `あなたはAppSuite（デスクネッツ ネオの
 - 必ず有効なJSONのみを出力する`;
 
 /**
+ * LLM応答からMarkdownコードフェンスを除去してJSON文字列を取り出す。
+ */
+function stripMarkdownFences(text: string): string {
+  const match = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  return match ? match[1].trim() : text.trim();
+}
+
+/**
  * 入力テキストのバリデーションを行う。
  * 空文字列・空白のみ、または5000文字超の場合は InputValidationError をスローする。
  */
@@ -102,7 +110,7 @@ export class Parser {
           throw new Error('LLM応答にテキストブロックが含まれていません');
         }
 
-        const json = JSON.parse(textBlock.text) as {
+        const json = JSON.parse(stripMarkdownFences(textBlock.text)) as {
           appName: string;
           purpose: string;
           targetUsers: string[];
