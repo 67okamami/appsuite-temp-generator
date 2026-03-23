@@ -29,8 +29,13 @@ state.addSystemMessage(
 
 // Send handler
 async function handleSend(): Promise<void> {
+  const MAX_LENGTH = 5000;
   const text = userInput.value.trim();
   if (!text || state.isGenerating) return;
+  if (text.length > MAX_LENGTH) {
+    state.addErrorMessage(`入力は${MAX_LENGTH}文字以内にしてください（現在${text.length}文字）`);
+    return;
+  }
 
   userInput.value = '';
   userInput.style.height = 'auto';

@@ -1,15 +1,7 @@
 import { html, render } from 'lit-html';
-import { unsafeHTML } from 'lit-html/directives/unsafe-html.js';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import type { ChatMessage } from './chat-state.js';
 import { renderResultView } from './result-view.js';
-
-marked.setOptions({ breaks: true });
-
-function safeMarkdown(md: string) {
-  return unsafeHTML(DOMPurify.sanitize(marked.parse(md) as string));
-}
+import { safeMarkdown } from './markdown-utils.js';
 
 function renderMessage(msg: ChatMessage) {
   switch (msg.role) {

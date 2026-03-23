@@ -15,8 +15,12 @@ function encodeZipBase64(zipArchive: Uint8Array): string {
 function validateDesignInfoShape(obj: unknown): obj is Record<string, unknown> {
   if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return false;
   const o = obj as Record<string, unknown>;
+  if (typeof o.appInfo !== 'object' || o.appInfo === null) return false;
+  const appInfo = o.appInfo as Record<string, unknown>;
   return (
-    typeof o.appInfo === 'object' && o.appInfo !== null &&
+    typeof appInfo.name === 'string' &&
+    typeof appInfo.iconId === 'string' &&
+    typeof appInfo.description === 'string' &&
     Array.isArray(o.components) &&
     Array.isArray(o.relations) &&
     Array.isArray(o.automations) &&
@@ -61,6 +65,10 @@ export function createRoutes(pipeline: Pipeline): Router {
       }
       if (typeof instruction !== 'string' || !instruction) {
         res.status(400).json({ error: 'instruction が必要です' });
+        return;
+      }
+      if (originalInput.length > CONSTRAINTS.MAX_INPUT_LENGTH) {
+        res.status(400).json({ error: `originalInputは${CONSTRAINTS.MAX_INPUT_LENGTH}文字以内にしてください` });
         return;
       }
       if (!validateDesignInfoShape(existing)) {

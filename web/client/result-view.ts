@@ -1,12 +1,6 @@
 import { html } from 'lit-html';
-import { unsafeHTML } from 'lit-html/directives/unsafe-html.js';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import type { GenerateResultData, RegenerateResultData } from './chat-state.js';
-
-function safeMarkdown(md: string) {
-  return unsafeHTML(DOMPurify.sanitize(marked.parse(md) as string));
-}
+import { safeMarkdown } from './markdown-utils.js';
 
 function downloadZip(base64: string, appName: string) {
   const bytes = atob(base64);

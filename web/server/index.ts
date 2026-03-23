@@ -20,7 +20,7 @@ const client = new Anthropic({ apiKey });
 const pipeline = new Pipeline({ llmClient: client });
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
 
 app.use('/api', createRoutes(pipeline));
 
