@@ -3,11 +3,13 @@ import { VALID_COMPONENT_TYPES } from '../../types/index.js';
 import { ERROR_MESSAGES, CONSTRAINTS, DEFAULT_VALUES } from '../../types/errors.js';
 
 describe('型定義のスモークテスト', () => {
-  it('VALID_COMPONENT_TYPES に9種類の部品タイプが定義されている', () => {
-    expect(VALID_COMPONENT_TYPES).toHaveLength(9);
+  it('VALID_COMPONENT_TYPES に11種類の部品タイプが定義されている', () => {
+    expect(VALID_COMPONENT_TYPES).toHaveLength(11);
     expect(VALID_COMPONENT_TYPES).toContain('text');
+    expect(VALID_COMPONENT_TYPES).toContain('textarea');
     expect(VALID_COMPONENT_TYPES).toContain('number');
     expect(VALID_COMPONENT_TYPES).toContain('date');
+    expect(VALID_COMPONENT_TYPES).toContain('time');
     expect(VALID_COMPONENT_TYPES).toContain('select');
     expect(VALID_COMPONENT_TYPES).toContain('checkbox');
     expect(VALID_COMPONENT_TYPES).toContain('attachment');

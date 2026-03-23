@@ -33,8 +33,10 @@ export type AppSuiteFieldType =
  */
 export const COMPONENT_TYPE_TO_APPSUITE: Record<string, AppSuiteFieldType> = {
   text: 'textbox',
+  textarea: 'textarea',
   number: 'number',
   date: 'date',
+  time: 'time',
   select: 'select',
   checkbox: 'checkbox',
   attachment: 'files',

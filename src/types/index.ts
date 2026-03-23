@@ -24,8 +24,10 @@ export interface AppInfo {
 
 export type ComponentType =
   | 'text'
+  | 'textarea'
   | 'number'
   | 'date'
+  | 'time'
   | 'select'
   | 'checkbox'
   | 'attachment'
@@ -35,8 +37,10 @@ export type ComponentType =
 
 export const VALID_COMPONENT_TYPES: readonly ComponentType[] = [
   'text',
+  'textarea',
   'number',
   'date',
+  'time',
   'select',
   'checkbox',
   'attachment',
