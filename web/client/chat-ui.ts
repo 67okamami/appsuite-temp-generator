@@ -1,23 +1,28 @@
 import { html, render } from 'lit-html';
 import { unsafeHTML } from 'lit-html/directives/unsafe-html.js';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import type { ChatMessage } from './chat-state.js';
 import { renderResultView } from './result-view.js';
 
 marked.setOptions({ breaks: true });
+
+function safeMarkdown(md: string) {
+  return unsafeHTML(DOMPurify.sanitize(marked.parse(md) as string));
+}
 
 function renderMessage(msg: ChatMessage) {
   switch (msg.role) {
     case 'user':
       return html`<div class="message message-user">${msg.content}</div>`;
     case 'system':
-      return html`<div class="message message-assistant">${unsafeHTML(marked.parse(msg.content) as string)}</div>`;
+      return html`<div class="message message-assistant">${safeMarkdown(msg.content)}</div>`;
     case 'error':
       return html`<div class="message message-error">${msg.content}</div>`;
     case 'assistant':
       return html`
         <div class="message message-assistant">
-          ${unsafeHTML(marked.parse(msg.content) as string)}
+          ${safeMarkdown(msg.content)}
           ${msg.result ? renderResultView(msg.result) : ''}
         </div>
       `;

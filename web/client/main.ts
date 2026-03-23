@@ -33,6 +33,7 @@ async function handleSend(): Promise<void> {
   if (!text || state.isGenerating) return;
 
   userInput.value = '';
+  userInput.style.height = 'auto';
   state.addUserMessage(text);
   state.setGenerating(true);
 

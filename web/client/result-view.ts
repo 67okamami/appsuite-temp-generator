@@ -1,7 +1,12 @@
 import { html } from 'lit-html';
 import { unsafeHTML } from 'lit-html/directives/unsafe-html.js';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import type { GenerateResultData, RegenerateResultData } from './chat-state.js';
+
+function safeMarkdown(md: string) {
+  return unsafeHTML(DOMPurify.sanitize(marked.parse(md) as string));
+}
 
 function downloadZip(base64: string, appName: string) {
   const bytes = atob(base64);
@@ -15,7 +20,7 @@ function downloadZip(base64: string, appName: string) {
   a.href = url;
   a.download = `${appName}.zip`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 function renderValidation(result: GenerateResultData | RegenerateResultData) {
@@ -46,7 +51,7 @@ function renderDiff(result: RegenerateResultData) {
 }
 
 export function renderResultView(result: GenerateResultData | RegenerateResultData) {
-  const design = result.type === 'regenerate' ? result.design : result.design;
+  const design = result.design;
   const appName = design.appInfo.name;
 
   return html`
@@ -61,14 +66,14 @@ export function renderResultView(result: GenerateResultData | RegenerateResultDa
       <details class="result-section">
         <summary>設計ドキュメント</summary>
         <div class="result-section-content">
-          ${unsafeHTML(marked.parse(result.designDocument) as string)}
+          ${safeMarkdown(result.designDocument)}
         </div>
       </details>
 
       <details class="result-section">
         <summary>GUI操作ガイド</summary>
         <div class="result-section-content">
-          ${unsafeHTML(marked.parse(result.guiGuide) as string)}
+          ${safeMarkdown(result.guiGuide)}
         </div>
       </details>
 
