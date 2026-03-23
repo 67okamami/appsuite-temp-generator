@@ -1,6 +1,5 @@
 import { Router, type Response } from 'express';
 import type { Pipeline } from '../../src/pipeline/index.js';
-import type { ParsedRequirements } from '../../src/types/index.js';
 import {
   InputValidationError,
   LLMApiError,
@@ -8,9 +7,6 @@ import {
   TemplateValidationError,
   CONSTRAINTS,
 } from '../../src/types/errors.js';
-
-// パーサー結果のキャッシュ（originalInput → ParsedRequirements）
-const parseCache = new Map<string, ParsedRequirements>();
 
 function encodeZipBase64(zipArchive: Uint8Array): string {
   return Buffer.from(zipArchive).toString('base64');
@@ -48,18 +44,6 @@ export function createRoutes(pipeline: Pipeline): Router {
       }
 
       const result = await pipeline.run(input);
-
-      // パーサー結果をキャッシュ（regenerate時の再解析を省略するため）
-      if (result.design.inputSummary) {
-        parseCache.set(input, {
-          appName: result.design.appInfo.name,
-          purpose: result.design.inputSummary,
-          targetUsers: [],
-          mainFeatures: [],
-          rawText: input,
-        });
-      }
-
       res.json({
         design: result.design,
         designDocument: result.designDocument,

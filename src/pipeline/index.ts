@@ -10,6 +10,7 @@ import { Validator } from '../validator/index.js';
 import { Renderer } from '../renderer/index.js';
 import type {
   DesignInfo,
+  ParsedRequirements,
   RegenerateResult,
   ValidationResult,
 } from '../types/index.js';
@@ -61,6 +62,8 @@ export class Pipeline {
   private validator: Validator;
   private renderer: Renderer;
   private includeMobile: boolean;
+  /** パーサー結果キャッシュ（regenerate時の再解析を省略） */
+  private parseCache = new Map<string, ParsedRequirements>();
 
   constructor(options: PipelineOptions) {
     const deps = { llmClient: options.llmClient, model: options.model };
@@ -77,6 +80,7 @@ export class Pipeline {
   async run(input: string): Promise<PipelineResult> {
     // 1. Parse
     const requirements = await this.parser.parse(input);
+    this.parseCache.set(input, requirements);
 
     // 2. Generate
     const design = await this.generator.generate(requirements, {
@@ -95,8 +99,9 @@ export class Pipeline {
     instruction: string,
     existing: DesignInfo,
   ): Promise<RegeneratePipelineResult> {
-    // 1. Parse（元の要件テキストを再解析）
-    const requirements = await this.parser.parse(originalInput);
+    // 1. Parse（キャッシュがあれば再解析を省略）
+    const requirements = this.parseCache.get(originalInput)
+      ?? await this.parser.parse(originalInput);
 
     // 2. Regenerate
     const regenerateResult = await this.generator.regenerate(
