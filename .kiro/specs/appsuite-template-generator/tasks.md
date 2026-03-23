@@ -67,7 +67,7 @@
 
   - [ ] 4.5 Generator に部品定義表生成ロジックを追加する
     - Claude API へ部品定義生成プロンプトを送信し ComponentDefinition[] を返すロジックを実装する
-    - 有効な部品タイプ（text/number/date/select/checkbox/attachment/relation/calc/auto）のみを使用するよう制約する
+    - 有効な部品タイプ（text/textarea/number/date/time/select/checkbox/attachment/relation/calc/auto）のみを使用するよう制約する
     - _要件: 3.1, 3.2, 3.3, 3.4_
 
   - [ ]* 4.6 プロパティテスト: 部品定義の完全性と有効性（プロパティ7）
@@ -256,8 +256,24 @@
     - `src/__tests__/unit/audio.test.ts` に実装する
     - _要件: 1.2, 1.3, 1.4_
 
-- [ ] 13. 最終チェックポイント - 全テスト通過確認
+- [x] 13. 最終チェックポイント - 全テスト通過確認
   - 全テストが通ることを確認する。疑問点があればユーザーに確認する。
+
+- [x] 14. チャット風Web UIの実装
+  - [x] 14.1 `web/package.json` 作成（express, lit-html, marked, dompurify, vite, tsx, concurrently, cross-env）
+  - [x] 14.2 `web/tsconfig.json`, `web/tsconfig.server.json` 作成
+  - [x] 14.3 `web/vite.config.ts` 作成（`/api` をExpressにプロキシ）
+  - [x] 14.4 `web/server/index.ts` — .env読み込み、Pipeline初期化、静的ファイル配信
+  - [x] 14.5 `web/server/routes.ts` — `/api/generate`, `/api/regenerate` エンドポイント、入力検証、エラーハンドリング
+  - [x] 14.6 `web/client/index.html` — HTMLシェル
+  - [x] 14.7 `web/client/styles.css` — チャット風レイアウト
+  - [x] 14.8 `web/client/chat-state.ts` — ChatState クラス、onChange コールバック
+  - [x] 14.9 `web/client/chat-ui.ts` — lit-html でメッセージ一覧・入力欄を描画
+  - [x] 14.10 `web/client/main.ts` — 初期化、送信ハンドラ、API呼び出し、クライアント側入力検証
+  - [x] 14.11 `web/client/result-view.ts` — 設計サマリー表示、`<details>` で詳細展開、ZIPダウンロード
+  - [x] 14.12 `web/client/audio-button.ts` — 既存 AudioInput 再利用、マイクボタン
+  - [x] 14.13 `web/client/markdown-utils.ts` — DOMPurifyによるMarkdownサニタイズユーティリティ
+  - _要件: 11.1〜11.10_
 
 ## 注意事項
 

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AppSuite テンプレートジェネレーター</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>AppSuite テンプレートジェネレーター</h1>
+  </header>
+  <main id="chat-container" class="chat-container"></main>
+  <footer class="input-area">
+    <div class="input-wrapper">
+      <textarea
+        id="user-input"
+        placeholder="作りたいアプリの要件を入力してください..."
+        rows="2"
+      ></textarea>
+      <div class="input-actions">
+        <button id="audio-btn" class="icon-btn" title="音声入力" type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
+        <button id="send-btn" class="send-btn" type="button">送信</button>
+      </div>
+    </div>
+  </footer>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>
