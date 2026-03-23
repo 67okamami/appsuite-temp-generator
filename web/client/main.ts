@@ -9,17 +9,63 @@ const chatContainer = document.getElementById('chat-container')!;
 const userInput = document.getElementById('user-input') as HTMLTextAreaElement;
 const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
 const audioBtn = document.getElementById('audio-btn') as HTMLButtonElement;
+const regenerateAllBtn = document.getElementById('regenerate-all-btn') as HTMLButtonElement;
 
 // Re-render on state change
 state.setOnChange(() => {
-  renderChat(chatContainer, state.messages, state.isGenerating);
+  renderChat(chatContainer, state.messages, state.isGenerating, () => state.latestZipBase64);
   updateInputState();
+  updateRegenerateAllBtn();
 });
 
 function updateInputState(): void {
   const disabled = state.isGenerating;
   userInput.disabled = disabled;
   sendBtn.disabled = disabled;
+}
+
+function updateRegenerateAllBtn(): void {
+  regenerateAllBtn.style.display = state.currentDesign ? '' : 'none';
+  regenerateAllBtn.disabled = state.isGenerating;
+}
+
+async function handleRegenerateAll(): Promise<void> {
+  if (!state.originalInput || state.isGenerating) return;
+
+  state.addUserMessage('（全体を再生成）');
+  state.setGenerating(true);
+
+  try {
+    const res = await fetch('/api/regenerate-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: state.originalInput }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      state.addErrorMessage(data.error || 'エラーが発生しました');
+      return;
+    }
+    const result: GenerateResultData = {
+      type: 'generate',
+      design: data.design,
+      designDocument: data.designDocument,
+      guiGuide: data.guiGuide,
+      validation: data.validation,
+      zipBase64: data.zipBase64,
+    };
+    state.currentDesign = result.design;
+    state.latestZipBase64 = result.zipBase64;
+    const resultForMessage = { ...result, zipBase64: '' };
+    state.addAssistantMessage(
+      '全体を再生成しました。\n\n' + buildGenerateSummary(result),
+      resultForMessage,
+    );
+  } catch (err) {
+    state.addErrorMessage('通信エラーが発生しました。ネットワーク接続を確認してください。');
+  } finally {
+    state.setGenerating(false);
+  }
 }
 
 // Welcome message
@@ -63,7 +109,9 @@ async function handleSend(): Promise<void> {
         zipBase64: data.zipBase64,
       };
       state.applyGenerateResult(text, result);
-      state.addAssistantMessage(buildGenerateSummary(result), result);
+      // メッセージ履歴にはzipBase64を含めない（メモリ節約）
+      const resultForMessage = { ...result, zipBase64: '' };
+      state.addAssistantMessage(buildGenerateSummary(result), resultForMessage);
     } else {
       const res = await fetch('/api/regenerate', {
         method: 'POST',
@@ -89,7 +137,9 @@ async function handleSend(): Promise<void> {
         zipBase64: data.zipBase64,
       };
       state.applyRegenerateResult(result);
-      state.addAssistantMessage(buildRegenerateSummary(result), result);
+      // メッセージ履歴にはzipBase64を含めない（メモリ節約）
+      const resultForMessage = { ...result, zipBase64: '' };
+      state.addAssistantMessage(buildRegenerateSummary(result), resultForMessage);
     }
   } catch (err) {
     state.addErrorMessage('通信エラーが発生しました。ネットワーク接続を確認してください。');
@@ -140,6 +190,9 @@ userInput.addEventListener('input', () => {
   userInput.style.height = 'auto';
   userInput.style.height = Math.min(userInput.scrollHeight, 120) + 'px';
 });
+
+// Regenerate all button
+regenerateAllBtn.addEventListener('click', handleRegenerateAll);
 
 // Audio button
 initAudioButton(audioBtn, userInput);

@@ -1,5 +1,6 @@
 import { Router, type Response } from 'express';
 import type { Pipeline } from '../../src/pipeline/index.js';
+import type { ParsedRequirements } from '../../src/types/index.js';
 import {
   InputValidationError,
   LLMApiError,
@@ -7,6 +8,9 @@ import {
   TemplateValidationError,
   CONSTRAINTS,
 } from '../../src/types/errors.js';
+
+// パーサー結果のキャッシュ（originalInput → ParsedRequirements）
+const parseCache = new Map<string, ParsedRequirements>();
 
 function encodeZipBase64(zipArchive: Uint8Array): string {
   return Buffer.from(zipArchive).toString('base64');
@@ -44,6 +48,43 @@ export function createRoutes(pipeline: Pipeline): Router {
       }
 
       const result = await pipeline.run(input);
+
+      // パーサー結果をキャッシュ（regenerate時の再解析を省略するため）
+      if (result.design.inputSummary) {
+        parseCache.set(input, {
+          appName: result.design.appInfo.name,
+          purpose: result.design.inputSummary,
+          targetUsers: [],
+          mainFeatures: [],
+          rawText: input,
+        });
+      }
+
+      res.json({
+        design: result.design,
+        designDocument: result.designDocument,
+        guiGuide: result.guiGuide,
+        validation: result.validation,
+        zipBase64: encodeZipBase64(result.zipArchive),
+      });
+    } catch (err) {
+      handleError(err, res);
+    }
+  });
+
+  router.post('/regenerate-all', async (req, res) => {
+    try {
+      const { input } = req.body;
+      if (!input || typeof input !== 'string') {
+        res.status(400).json({ error: '要件を入力してください' });
+        return;
+      }
+      if (input.length > CONSTRAINTS.MAX_INPUT_LENGTH) {
+        res.status(400).json({ error: `入力は${CONSTRAINTS.MAX_INPUT_LENGTH}文字以内にしてください` });
+        return;
+      }
+
+      const result = await pipeline.regenerateAll(input);
       res.json({
         design: result.design,
         designDocument: result.designDocument,

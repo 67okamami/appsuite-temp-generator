@@ -33,6 +33,8 @@ export class ChatState {
   originalInput: string = '';
   currentDesign: DesignInfo | null = null;
   isGenerating: boolean = false;
+  /** 最新のZIPデータのみ保持（メモリ節約） */
+  latestZipBase64: string = '';
 
   private onChange: StateChangeHandler | null = null;
 
@@ -76,9 +78,11 @@ export class ChatState {
   applyGenerateResult(input: string, data: GenerateResultData): void {
     this.originalInput = input;
     this.currentDesign = data.design;
+    this.latestZipBase64 = data.zipBase64;
   }
 
   applyRegenerateResult(data: RegenerateResultData): void {
     this.currentDesign = data.design;
+    this.latestZipBase64 = data.zipBase64;
   }
 }

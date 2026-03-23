@@ -44,9 +44,18 @@ function renderDiff(result: RegenerateResultData) {
   `;
 }
 
-export function renderResultView(result: GenerateResultData | RegenerateResultData) {
+export function renderResultView(
+  result: GenerateResultData | RegenerateResultData,
+  getLatestZip?: () => string,
+) {
   const design = result.design;
   const appName = design.appInfo.name;
+
+  const handleDownload = () => {
+    const zip = getLatestZip?.() || result.zipBase64;
+    if (!zip) return;
+    downloadZip(zip, appName);
+  };
 
   return html`
     <div class="result-view">
@@ -78,7 +87,7 @@ export function renderResultView(result: GenerateResultData | RegenerateResultDa
 
       <button
         class="download-btn"
-        @click=${() => downloadZip(result.zipBase64, appName)}
+        @click=${handleDownload}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>

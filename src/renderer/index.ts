@@ -429,6 +429,15 @@ export class Renderer {
     const template = this.renderTemplate(design);
     zip.file('reference/template.json', JSON.stringify(template, null, 4));
 
+    // 参考資料: template_desc.json（AppSuiteテンプレートZIPのメタ情報）
+    const templateDesc = {
+      Name: design.appInfo.name,
+      overview: design.appInfo.description,
+      filename: 'template.json',
+      mimetype: 'application/json',
+    };
+    zip.file('reference/template_desc.json', JSON.stringify(templateDesc, null, 4));
+
     return zip.generateAsync({ type: 'uint8array' });
   }
 

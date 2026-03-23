@@ -3,7 +3,7 @@ import type { ChatMessage } from './chat-state.js';
 import { renderResultView } from './result-view.js';
 import { safeMarkdown } from './markdown-utils.js';
 
-function renderMessage(msg: ChatMessage) {
+function renderMessage(msg: ChatMessage, getLatestZip: () => string) {
   switch (msg.role) {
     case 'user':
       return html`<div class="message message-user">${msg.content}</div>`;
@@ -15,7 +15,7 @@ function renderMessage(msg: ChatMessage) {
       return html`
         <div class="message message-assistant">
           ${safeMarkdown(msg.content)}
-          ${msg.result ? renderResultView(msg.result) : ''}
+          ${msg.result ? renderResultView(msg.result, getLatestZip) : ''}
         </div>
       `;
   }
@@ -36,9 +36,10 @@ export function renderChat(
   container: HTMLElement,
   messages: ChatMessage[],
   isGenerating: boolean,
+  getLatestZip: () => string,
 ): void {
   const template = html`
-    ${messages.map(renderMessage)}
+    ${messages.map(m => renderMessage(m, getLatestZip))}
     ${isGenerating ? renderLoading() : ''}
   `;
   render(template, container);
