@@ -1,20 +1,26 @@
-# デザインドキュメント: AppSuite テンプレートジェネレーター
+# デザインドキュメント: AppSuite 設計支援ツール
 
 ## 概要
 
-本ドキュメントは、デスクネッツ ネオの業務アプリ作成ツール「AppSuite」向けテンプレートファイル自動生成ツールの技術設計を定義する。
+本ドキュメントは、デスクネッツ ネオの業務アプリ作成ツール「AppSuite」向けアプリ設計支援ツールの技術設計を定義する。
 
 ユーザーが自然言語（テキストまたは音声）でアプリ要件を入力すると、システムは以下を自動生成する：
 
-- AppSuiteへ即座にインポート可能なテンプレートファイル（JSON/XML）
-- 部品定義表・リレーション設計・計算式・画面デザイン案・Claude Code用操作指示を含む設計ドキュメント
+- 設計ドキュメント（Markdown） — 部品定義表・リレーション設計・計算式・画面デザイン案・GUI操作ガイド
+- AppSuite実形式のtemplate.json（参考資料。template.key署名問題により直接インポートは現時点で不可）
 
 ### 設計方針
 
 - **パイプライン型アーキテクチャ**: 入力 → 解析 → 生成 → 検証 → 出力 の一方向データフロー
 - **コンポーネント分離**: Parser / Generator / Renderer / Validator を独立したモジュールとして実装
 - **LLM活用**: 自然言語解析・設計生成の中核にLLM（Claude API）を使用
-- **ラウンドトリップ保証**: テンプレートファイルのシリアライズ/デシリアライズの整合性を保証
+- **設計ドキュメント中心**: 主出力は設計ドキュメントとGUI操作ガイド。テンプレートファイルは参考資料として出力
+
+### template.key 制約事項
+
+AppSuiteのテンプレートZIPには `template.key`（署名）が含まれ、`template.json` の内容に紐づいている。
+署名アルゴリズムは非公開のため、外部で生成したテンプレートのAppSuiteへの直接インポートは現時点では不可。
+ネオジャパンへの問い合わせ、またはサーバー側コード解析で署名ロジックが判明した場合に再開可能。
 
 ---
 
@@ -162,28 +168,33 @@ interface Generator {
 
 ### Renderer
 
-`DesignInfo` を各種出力形式に変換する。
+`DesignInfo` を各種出力形式に変換する。主出力は設計ドキュメントとGUI操作ガイド。
 
 ```typescript
 interface Renderer {
-  renderTemplate(design: DesignInfo): TemplateFile;
-  renderDesignDocument(design: DesignInfo): string;  // Markdown
-  renderZipArchive(design: DesignInfo): Blob;
+  renderDesignDocument(design: DesignInfo): string;     // Markdown（主出力）
+  renderGuiGuide(design: DesignInfo): string;           // GUI操作ガイド（Markdown）
+  renderTemplate(design: DesignInfo): AppSuiteTemplateJson;  // 参考資料
+  renderZipArchive(design: DesignInfo): Promise<Uint8Array>;
 }
 ```
 
 **責務:**
-- AppSuiteテンプレートファイル（JSON/XML）の生成
-- 設計ドキュメント（Markdown）の生成
-- ZIPアーカイブの生成
+- **設計ドキュメント（Markdown）の生成**（主出力）
+- **AppSuite GUI操作ガイドの生成** — アプリ作成・部品追加・ビュー設定のステップバイステップ手順
+- AppSuiteテンプレートファイル（template.json）の生成（参考資料）
+  - システムフィールド（id, 登録日時, 登録者, 更新日時, 更新者）の自動付与
+  - ComponentType → AppSuiteFieldType の変換（例: text→textbox, calc→expression）
+  - カードビュー・view_partsの自動生成
+- ZIPアーカイブの生成（`design-document.md` + `gui-guide.md` + `template.json`）
 
 ### Validator
 
-生成されたテンプレートファイルの整合性を検証する。
+生成されたAppSuiteテンプレートファイルの整合性を検証する。
 
 ```typescript
 interface Validator {
-  validate(template: TemplateFile): ValidationResult;
+  validate(template: AppSuiteTemplateJson): ValidationResult;
 }
 
 interface ValidationResult {
@@ -198,9 +209,9 @@ interface ValidationError {
 ```
 
 **責務:**
-- 必須フィールドの存在確認（アプリ名・部品定義・バージョン情報）
-- 部品タイプの有効性確認
-- リレーション参照の整合性確認
+- 必須フィールドの存在確認（バージョン・アプリ名・ユーザー定義フィールド）
+- AppSuiteフィールドタイプの有効性確認
+- 構造の整合性確認（テーブル・ビューの存在）
 
 ---
 
@@ -252,8 +263,10 @@ interface AppInfo {
 ```typescript
 type ComponentType =
   | 'text'        // テキスト
+  | 'textarea'    // テキストエリア
   | 'number'      // 数値
   | 'date'        // 日付
+  | 'time'        // 時刻
   | 'select'      // 選択肢
   | 'checkbox'    // チェックボックス
   | 'attachment'  // 添付ファイル
@@ -271,6 +284,26 @@ interface ComponentDefinition {
   autoConfig?: AutoConfig;   // 自動設定タイプの場合
 }
 ```
+
+### ComponentType → AppSuiteFieldType マッピング
+
+Generator が使用する `ComponentType` はLLM生成用の抽象型であり、Renderer が AppSuite 実テンプレートに変換する際に以下のマッピングが適用される。
+
+| ComponentType | AppSuiteFieldType | 備考 |
+|---|---|---|
+| text | textbox | テキスト入力 |
+| textarea | textarea | テキストエリア |
+| number | number | 数値入力 |
+| date | date | 日付入力 |
+| time | time | 時刻入力 |
+| select | select | 選択肢（ドロップダウン） |
+| checkbox | checkbox | チェックボックス |
+| attachment | files | 添付ファイル |
+| relation | rel_list | リレーション（一覧表示） |
+| calc | expression | 計算式 |
+| auto | expression | 自動設定（tasksで表現） |
+
+AppSuite が対応する全フィールドタイプ: `id`, `datetime`, `user`, `number`, `textbox`, `textarea`, `richeditor`, `files`, `input_list`, `select`, `listbox`, `radio`, `checkbox`, `users`, `groups`, `date`, `time`, `expression`, `rel_list`, `rel_field`
 
 ### RelationDefinition（リレーション定義）
 
@@ -321,20 +354,35 @@ interface LayoutRow {
 }
 ```
 
-### TemplateFile（テンプレートファイル）
+### AppSuiteTemplateJson（テンプレートファイル — AppSuite実形式）
+
+実物のAppSuiteテンプレートZIPを解析して定義。`template.json` のルート構造。
 
 ```typescript
-interface TemplateFile {
-  version: string;           // AppSuiteテンプレートバージョン
-  appName: string;
-  appIcon: string;
-  appDescription: string;
-  components: TemplateComponent[];
-  relations: TemplateRelation[];
-  automations: TemplateAutomation[];
-  layout: TemplateLayout;
+interface AppSuiteTemplateJson {
+  version: string;                    // 例: "1.0.9"
+  applications: AppSuiteAppEntry[];
+}
+
+interface AppSuiteAppEntry {
+  application: AppSuiteApplication;   // アプリメタ情報（Name, type_, overview_ 等）
+  tables: AppSuiteTable[];            // テーブル定義
+  table_fileds: AppSuiteField[];      // フィールド定義（※"fileds"はAppSuiteの実際のスペル）
+  views: AppSuiteView[];              // 画面ビュー定義
+  view_parts: AppSuiteViewPart[];     // ビュー上の部品配置
+  filters: unknown[];                 // フィルター定義
+  tasks: unknown[];                   // 自動化タスク定義
+  task_actions: unknown[];            // タスクアクション定義
+  // ... 他21キー（aggr_settings, validations 等）
 }
 ```
+
+ZIP アーカイブ内のファイル構成:
+- `template.json` — アプリ定義本体
+- `template_desc.json` — メタ情報 `{ Name, overview, filename, mimetype }`
+- `template.key` — 認証キー
+- `icon.png` — アプリアイコン画像（オプション）
+- `pu_att/` — 添付画像アセット（オプション）
 
 ### RegenerateResult（再生成結果）
 
@@ -407,7 +455,7 @@ interface DesignDiff {
 
 ### プロパティ7: 部品定義の完全性と有効性
 
-*任意の* ParsedRequirementsに対して、生成される全部品定義は（1）部品名・部品タイプ・必須チェックの全フィールドを持ち、（2）部品タイプがAppSuiteの有効な部品タイプセット（text/number/date/select/checkbox/attachment/relation/calc/auto）に含まれなければならない
+*任意の* ParsedRequirementsに対して、生成される全部品定義は（1）部品名・部品タイプ・必須チェックの全フィールドを持ち、（2）部品タイプがAppSuiteの有効な部品タイプセット（text/textarea/number/date/time/select/checkbox/attachment/relation/calc/auto）に含まれなければならない
 
 **検証対象: 要件 3.1, 3.2**
 
@@ -471,7 +519,7 @@ interface DesignDiff {
 
 ### プロパティ15: Claude Code操作指示の完全性
 
-*任意の* 設計情報に対して、生成されるClaude Code用操作指示は（1）アプリ基本情報・部品定義・リレーション設計・計算式・画面レイアウトの全情報を含み、（2）Markdownコードブロック形式で出力され、（3）AppSuiteテンプレートファイル形式（JSON/XML）の仕様を明示しなければならない
+*任意の* 設計情報に対して、生成されるClaude Code用操作指示は（1）アプリ基本情報・部品定義・リレーション設計・計算式・画面レイアウトの全情報を含み、（2）Markdownコードブロック形式で出力され、（3）AppSuiteテンプレートファイル形式（AppSuite実形式のJSON）の仕様を明示しなければならない
 
 **検証対象: 要件 7.1, 7.2, 7.3, 7.4**
 
@@ -485,9 +533,9 @@ interface DesignDiff {
 
 ---
 
-### プロパティ17: テンプレートファイルのラウンドトリップ
+### プロパティ17: テンプレートファイルの生成冪等性
 
-*任意の* 有効なDesignInfoオブジェクトに対して、テンプレートファイルを生成してパースし再度生成した結果は元のDesignInfoと等価でなければならない
+*任意の* 有効なDesignInfoオブジェクトに対して、同じDesignInfoからテンプレートファイルを2回生成した結果は同一でなければならない
 
 **検証対象: 要件 8.5**
 
@@ -503,7 +551,7 @@ interface DesignDiff {
 
 ### プロパティ19: ZIPアーカイブの内容完全性
 
-*任意の* 設計情報に対して、生成されるZIPアーカイブにはテンプレートファイルと設計ドキュメントの両方が含まれなければならない
+*任意の* 設計情報に対して、生成されるZIPアーカイブには `template.json`（AppSuite実形式）、`template_desc.json`、および設計ドキュメント（`design-document.md`）が含まれなければならない
 
 **検証対象: 要件 9.3**
 
@@ -548,6 +596,101 @@ interface DesignDiff {
 - **フェイルセーフ**: 部分的な生成失敗はデフォルト値やプレースホルダーで補完し、処理を継続する
 - **エラー詳細**: 検証エラーは不足フィールドを特定して具体的なメッセージを返す
 - **リトライ**: LLM API呼び出しは最大3回リトライし、全て失敗した場合のみエラーを返す
+
+---
+
+## Web UI アーキテクチャ
+
+### 概要
+
+ブラウザ上のチャット風UIからPipelineを操作するためのWeb層。APIキーをブラウザに露出させないため、Expressサーバーをプロキシとして配置する。
+
+### 技術選定
+
+| 項目 | 選定 | 理由 |
+|------|------|------|
+| フロントエンド | Vanilla TS + lit-html | 3KBのテンプレートライブラリ。チャットのメッセージ追加に十分 |
+| サーバー | Express（APIプロキシ） | Claude SDKはNode.js前提。APIキーをサーバー側で管理 |
+| バンドラー | Vite | TS対応済み、設定最小、HMR付き |
+| Markdown表示 | marked + DOMPurify | Markdown→HTMLの変換とXSSサニタイズ |
+
+### システム構成
+
+```
+ブラウザ (lit-html + AudioInput)
+    ↕ fetch POST /api/*
+Express サーバー (port 3001)
+    ↕ Pipeline.run() / regenerate()
+Claude API
+```
+
+### ディレクトリ構成
+
+```
+web/
+  package.json
+  tsconfig.json
+  vite.config.ts
+  server/
+    index.ts          Express サーバー起点
+    routes.ts         API エンドポイント
+  client/
+    index.html        HTMLシェル
+    main.ts           エントリポイント
+    chat-state.ts     チャット状態管理
+    chat-ui.ts        メッセージ一覧・入力欄の描画
+    result-view.ts    生成結果の展開表示・ダウンロード
+    audio-button.ts   音声入力ボタン（既存AudioInput再利用）
+    markdown-utils.ts Markdownサニタイズユーティリティ
+    styles.css        チャットUIスタイル
+```
+
+### APIエンドポイント
+
+```
+POST /api/generate
+  Body: { input: string }
+  Response: { design, designDocument, guiGuide, validation, zipBase64 }
+
+POST /api/regenerate
+  Body: { originalInput, instruction, existing }
+  Response: { regenerateResult, designDocument, guiGuide, validation, zipBase64 }
+```
+
+### チャットフロー
+
+1. 初期メッセージ: ウェルカムメッセージ表示
+2. ユーザーが入力 → `POST /api/generate` → アシスタントが設計結果を表示
+3. ユーザーが追加指示 → `POST /api/regenerate` → 差分付きで結果更新
+4. ZIPダウンロードボタンで成果物取得
+
+### チャット状態管理
+
+```typescript
+class ChatState {
+  messages: ChatMessage[]
+  originalInput: string        // 最初のユーザー入力（regenerate用）
+  currentDesign: DesignInfo | null  // 最新の設計情報（regenerate用）
+  isGenerating: boolean
+}
+```
+
+### セキュリティ対策
+
+- APIキーはサーバー側の `.env` で管理（ブラウザ非露出）
+- LLM生成コンテンツは `DOMPurify.sanitize()` でサニタイズ後に描画
+- 入力長はクライアント側（5000文字）とサーバー側（CONSTRAINTS.MAX_INPUT_LENGTH）で二重検証
+- `existing` オブジェクトの形状検証（appInfo, components, relations, automations, layout）
+- Express JSONボディサイズ制限（1MB）
+
+### 再利用する既存コード
+
+| ファイル | 用途 |
+|---------|------|
+| `src/pipeline/index.ts` | Pipeline クラス（サーバーから直接利用） |
+| `src/audio/index.ts` | AudioInput クラス（クライアントから直接利用） |
+| `src/types/index.ts` | DesignInfo 等の型定義（共有） |
+| `src/types/errors.ts` | エラークラス・定数（サーバーで利用） |
 
 ---
 

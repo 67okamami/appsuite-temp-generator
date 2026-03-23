@@ -1,0 +1,35 @@
+{
+  "name": "appsuite-temp-generator-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"tsx watch server/index.ts\" \"vite\"",
+    "build": "vite build && tsc -p tsconfig.server.json",
+    "start": "cross-env NODE_ENV=production tsx server/index.ts",
+    "test": "vitest --run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
+    "cors": "^2.8.6",
+    "cross-env": "^10.1.0",
+    "dompurify": "^3.3.3",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.3.1",
+    "jszip": "^3.10.1",
+    "lit-html": "^3.3.0",
+    "marked": "^15.0.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/dompurify": "^3.0.5",
+    "@types/express": "^5.0.2",
+    "@types/node": "^25.5.0",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.9.3",
+    "vite": "^6.3.5",
+    "vitest": "^4.1.0"
+  }
+}

@@ -67,7 +67,7 @@
 
   - [ ] 4.5 Generator に部品定義表生成ロジックを追加する
     - Claude API へ部品定義生成プロンプトを送信し ComponentDefinition[] を返すロジックを実装する
-    - 有効な部品タイプ（text/number/date/select/checkbox/attachment/relation/calc/auto）のみを使用するよう制約する
+    - 有効な部品タイプ（text/textarea/number/date/time/select/checkbox/attachment/relation/calc/auto）のみを使用するよう制約する
     - _要件: 3.1, 3.2, 3.3, 3.4_
 
   - [ ]* 4.6 プロパティテスト: 部品定義の完全性と有効性（プロパティ7）
@@ -196,51 +196,84 @@
     - `src/__tests__/unit/renderer.test.ts` に実装する
     - _要件: 3.5, 4.4, 9.3_
 
-- [ ] 9. 修正・再生成機能の実装
-  - [ ] 9.1 Generator に `regenerate()` と `regenerateAll()` メソッドを実装する
+- [ ] 9. GUI操作ガイド生成機能の実装
+  - [ ] 9.1 Renderer に `renderGuiGuide()` メソッドを追加する
+    - AppSuiteのGUIでアプリを構築するためのステップバイステップ手順を生成する
+    - アプリ作成手順（アプリ名・アイコン・説明文の設定）を含める
+    - 各部品の追加手順（部品タイプ・必須設定・選択肢・計算式の設定方法）を含める
+    - ビュー設定手順（レイアウト配置）を含める
+    - _要件: 7.1, 7.2, 7.3, 7.4, 7.5_
+
+  - [ ]* 9.2 ユニットテスト: GUI操作ガイドの検証
+    - 全必須セクション（アプリ作成・部品追加・ビュー設定）が含まれることの検証
+    - 各部品タイプに応じた設定項目が記載されていることの検証
+    - `src/__tests__/unit/renderer.test.ts` に追記する
+    - _要件: 7.1, 7.2, 7.5_
+
+  - [ ] 9.3 `renderZipArchive()` を更新し、設計ドキュメント + GUI操作ガイド + template.json（参考資料）を含むZIPを生成する
+    - _要件: 9.3_
+
+- [ ] 10. 修正・再生成機能の実装
+  - [ ] 10.1 Generator に `regenerate()` と `regenerateAll()` メソッドを実装する
     - 部分修正: 修正対象要素のみ更新し、他の要素を維持するロジックを実装する
     - 差分情報（DesignDiff: 追加・変更・削除）の生成ロジックを実装する
     - 全体再生成: 全設計情報を最初から再生成するロジックを実装する
     - _要件: 10.1, 10.2, 10.3, 10.4_
 
-  - [ ]* 9.2 プロパティテスト: 部分再生成の整合性（プロパティ20）
+  - [ ]* 10.2 プロパティテスト: 部分再生成の整合性（プロパティ20）
     - **プロパティ20: 部分再生成の整合性**
     - **検証対象: 要件 10.2, 10.3**
     - `src/__tests__/property/regenerate.property.test.ts` に実装する
 
-  - [ ]* 9.3 ユニットテスト: 再生成のエッジケース
+  - [ ]* 10.3 ユニットテスト: 再生成のエッジケース
     - 全体再生成時に全設計情報が更新されることの検証
     - 差分情報の正確性検証
     - `src/__tests__/unit/generator.test.ts` に追記する
     - _要件: 10.1, 10.4_
 
-- [ ] 10. パイプライン統合とエラーハンドリング
-  - [ ] 10.1 `src/pipeline/index.ts` に全コンポーネントを結合するパイプラインを実装する
+- [ ] 11. パイプライン統合とエラーハンドリング
+  - [ ] 11.1 `src/pipeline/index.ts` に全コンポーネントを結合するパイプラインを実装する
     - Parser → Generator → Validator → Renderer の一方向データフローを実装する
     - LLM API 呼び出しのリトライロジック（最大3回）を実装する
     - 各フェイルセーフ処理（デフォルト値・プレースホルダー補完）を統合する
     - _要件: 1.1, 2.4, 4.3, 5.4_
 
-  - [ ]* 10.2 統合テスト: フルパイプラインの動作検証
-    - テキスト入力から ZIP ダウンロードまでのエンドツーエンドフローを検証する
+  - [ ]* 11.2 統合テスト: フルパイプラインの動作検証
+    - テキスト入力から設計ドキュメント出力までのエンドツーエンドフローを検証する
     - `src/__tests__/integration/full-pipeline.test.ts` に実装する
-    - _要件: 1.1, 8.1, 9.3_
+    - _要件: 1.1, 9.1, 9.3_
 
-- [ ] 11. 音声入力機能の実装
-  - [ ] 11.1 `src/audio/index.ts` に音声入力モジュールを実装する
+- [ ] 12. 音声入力機能の実装
+  - [ ] 12.1 `src/audio/index.ts` に音声入力モジュールを実装する
     - Web Speech API を使用したリアルタイム音声→テキスト変換を実装する
     - 変換完了後にテキスト入力欄へ反映するロジックを実装する
     - 音声認識失敗時のエラーメッセージ「音声を認識できませんでした。もう一度お試しいただくか、テキストで入力してください」を実装する
     - _要件: 1.1, 1.2, 1.3, 1.4_
 
-  - [ ]* 11.2 ユニットテスト: 音声入力モジュール
+  - [ ]* 12.2 ユニットテスト: 音声入力モジュール
     - 音声認識失敗時のエラーメッセージ検証
     - テキスト入力欄への反映ロジック検証
     - `src/__tests__/unit/audio.test.ts` に実装する
     - _要件: 1.2, 1.3, 1.4_
 
-- [ ] 12. 最終チェックポイント - 全テスト通過確認
+- [x] 13. 最終チェックポイント - 全テスト通過確認
   - 全テストが通ることを確認する。疑問点があればユーザーに確認する。
+
+- [x] 14. チャット風Web UIの実装
+  - [x] 14.1 `web/package.json` 作成（express, lit-html, marked, dompurify, vite, tsx, concurrently, cross-env）
+  - [x] 14.2 `web/tsconfig.json`, `web/tsconfig.server.json` 作成
+  - [x] 14.3 `web/vite.config.ts` 作成（`/api` をExpressにプロキシ）
+  - [x] 14.4 `web/server/index.ts` — .env読み込み、Pipeline初期化、静的ファイル配信
+  - [x] 14.5 `web/server/routes.ts` — `/api/generate`, `/api/regenerate` エンドポイント、入力検証、エラーハンドリング
+  - [x] 14.6 `web/client/index.html` — HTMLシェル
+  - [x] 14.7 `web/client/styles.css` — チャット風レイアウト
+  - [x] 14.8 `web/client/chat-state.ts` — ChatState クラス、onChange コールバック
+  - [x] 14.9 `web/client/chat-ui.ts` — lit-html でメッセージ一覧・入力欄を描画
+  - [x] 14.10 `web/client/main.ts` — 初期化、送信ハンドラ、API呼び出し、クライアント側入力検証
+  - [x] 14.11 `web/client/result-view.ts` — 設計サマリー表示、`<details>` で詳細展開、ZIPダウンロード
+  - [x] 14.12 `web/client/audio-button.ts` — 既存 AudioInput 再利用、マイクボタン
+  - [x] 14.13 `web/client/markdown-utils.ts` — DOMPurifyによるMarkdownサニタイズユーティリティ
+  - _要件: 11.1〜11.10_
 
 ## 注意事項
 
