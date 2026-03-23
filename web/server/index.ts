@@ -11,7 +11,10 @@ import { createRoutes } from './routes.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'];
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || [
+  'http://localhost:5173',
+  'http://localhost:3001',
+];
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
@@ -44,7 +47,7 @@ app.use('/api', createRoutes(pipeline));
 if (process.env.NODE_ENV === 'production') {
   const clientDir = path.resolve(__dirname, '../dist/client');
   app.use(express.static(clientDir));
-  app.get('*', (_req, res) => {
+  app.get('{*path}', (_req, res) => {
     res.sendFile(path.join(clientDir, 'index.html'));
   });
 }
